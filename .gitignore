@@ -1,0 +1,21 @@
+# data
+*.gz
+*.db
+*.jld
+*.Rdata
+*.csv
+*.xls
+*.xml
+
+# images/plots
+*.pdf
+*.jpg
+*.jpeg
+*.png
+
+# jupyter notebook
+.ipynb_checkpoints
+*.ipynb
+
+# DDI setup files
+setup*.R
