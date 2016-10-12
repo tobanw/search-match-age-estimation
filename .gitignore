@@ -12,6 +12,7 @@
 *.jpg
 *.jpeg
 *.png
+proposal/graphics/
 
 # jupyter notebook
 .ipynb_checkpoints
