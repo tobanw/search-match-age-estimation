@@ -1,10 +1,14 @@
-library(DBI) # RSQLite database functions
-library(data.table)
-library(zoo) # for interpolating mortality rates with na.approx
-
 # Order of traits: husband then wife; age, edu, race
 # Notation: husband gets _SP suffix, wife is default
 # Min age is 25 because of endogeneity of college
+# ACS data: 2008-2014, ages 18-79 (note: AGE_SP is not limited).
+
+# TODO: try pooling -- just use age matching
+
+library(DBI) # RSQLite database functions
+library(data.table)
+library(zoo) # for interpolating mortality rates with na.approx
+library(ggplot2)
 
 # load up CDC mortality table: by sex, age, and minority
 mort.dt <- fread('mort_08-15.csv')
@@ -36,6 +40,7 @@ qry_marr_flow = paste0('select
 	group by AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F')
 
 # stocks (lagged): counts of all marriages by type pair (by year for separating cohorts)
+#	drop the final survey year as unused
 qry_marr_stock = paste0('select "YEAR" + 1 as YEAR,
 		"AGE_SP" + 1 as AGE_M, ', case_college_sp, ' as COLLEGE_M, ', case_minority_sp, ' as MINORITY_M,
 		"AGE" + 1 as AGE_F, ', case_college, ' as COLLEGE_F, ', case_minority, ' as MINORITY_F,
@@ -44,9 +49,11 @@ qry_marr_stock = paste0('select "YEAR" + 1 as YEAR,
 	where "MARST" <= 2
 		and "SEX" = 2
 		and AGE_F >= 25 and AGE_M >= 25
+		and YEAR != 2015
 	group by YEAR, AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F')
 
 # stocks of surviving marriages (by year for separating cohorts)
+#	drop the initial survey year as unused
 qry_m1_stock = paste0('select "YEAR" as YEAR,
 		"AGE_SP" as AGE_M, ', case_college_sp, ' as COLLEGE_M, ', case_minority_sp, ' as MINORITY_M,
 		"AGE" as AGE_F, ', case_college, ' as COLLEGE_F, ', case_minority, ' as MINORITY_F,
@@ -55,6 +62,7 @@ qry_m1_stock = paste0('select "YEAR" as YEAR,
 	where "MARST" <= 2 and "MARRINYR" != 2
 		and "SEX" = 2
 		and AGE_F >= 25 and AGE_M >= 25
+		and YEAR != 2008
 	group by YEAR, AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F')
 
 # counts of singles eligible to marry within the past year
@@ -84,16 +92,7 @@ men.elig = data.table(dbGetQuery(db, qry_men_elig))
 wom.elig = data.table(dbGetQuery(db, qry_wom_elig))
 
 
-### Divorce rates ###
-
-div.dt <- merge(mar.stock, m1.stock,
-				by=c("YEAR", "AGE_M", "COLLEGE_M", "MINORITY_M", "AGE_F", "COLLEGE_F", "MINORITY_F"),
-				all=TRUE) # merge the MARSTOCK columns
-
-# master.dt is aggregate, div.dt is by cohort-year
-# need to compute DIVRATE by cohort and then average and merge into master.dt
-
-## Death rates
+### Death rates ###
 
 # prep mortality table for merging
 mort.dt[, DTHRT := DR100 / 100000] # convert individual probabilities
@@ -112,6 +111,12 @@ wom.elig <- merge(wom.elig, mort.dt[SEX==2, .(AGE_F = AGE, MINORITY_F = MINORITY
 men.elig[, DTHRT_M := na.approx(DTHRT_M, AGE_M), MINORITY_M] # male
 wom.elig[, DTHRT_F := na.approx(DTHRT_F, AGE_F), MINORITY_F] # female
 
+### Divorce rates ###
+
+# inner join: need both stocks
+div.dt <- merge(mar.stock, m1.stock,
+				by=c("YEAR", "AGE_M", "COLLEGE_M", "MINORITY_M", "AGE_F", "COLLEGE_F", "MINORITY_F"))
+
 # merge in death rates (and stocks of singles)
 div.dt <- merge(div.dt, men.elig, by=c("AGE_M", "COLLEGE_M", "MINORITY_M"))
 div.dt <- merge(div.dt, wom.elig, by=c("AGE_F", "COLLEGE_F", "MINORITY_F"))
@@ -124,12 +129,12 @@ div.dt[, CPLDR := DTHRT_F + DTHRT_M - DTHRT_F * DTHRT_M]
 #div.dt[, DIVFLOW := MARSTOCK * (1 - CPLDR) - M1STOCK]
 
 # divorce rates calculated per separate cohort
-div.dt[, DIVRTC := 1 - CPLDR - M1STOCK / MARSTOCK] # 1 - death rate - non-div rate
+div.dt[, DIVRATE_C := 1 - CPLDR - M1STOCK / MARSTOCK] # 1 - death rate - non-div rate
 
 # merge in the average divorce rate and total marriage stock (by cohort)
 #   as well as stocks of singles
 master.dt <- merge(master.dt,
-				   div.dt[, .(DIVRATE = mean(DIVRTC), WEIGHT = sum(MARSTOCK),
+				   div.dt[, .(DIVRATE = mean(DIVRATE_C), WEIGHT = sum(MARSTOCK),
 							  SNG_M = SNG_M[1], SNG_F = SNG_F[1]),
 						  .(AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F)],
 				   by=c("AGE_M", "COLLEGE_M", "MINORITY_M", "AGE_F", "COLLEGE_F", "MINORITY_F"))
@@ -137,10 +142,13 @@ master.dt <- merge(master.dt,
 
 ### Marriage rates ###
 
+# flows and stocks aggregated over years/cohorts
 master.dt[, MARRATE := MARFLOW / SNG_M / SNG_F] # sequential division to prevent integer overflow error
 
 
 ### Weighted OLS ###
+
+#FIXME: DIVRATE has mean -0.34 and sd 1.07! Pool and trim.
 
 # drop NA rates, which may really bias the estimates
 reg.dt <- master.dt[!is.na(MARRATE) & !is.na(DIVRATE),
@@ -149,4 +157,18 @@ reg.dt <- master.dt[!is.na(MARRATE) & !is.na(DIVRATE),
 # weighted regression without an intercept
 ols.reg <- lm(Y ~ 0 + MARRATE + DIVRATE, data=reg.dt, weights=WEIGHT)
 
-#summary(ols.reg) to view results
+# save regression output to file
+reg.results <- capture.output(summary(ols.reg))
+cat("Full regression: couples matched on age, edu, race", reg.results,
+	file="results/full-reg.txt", sep="\n")
+
+# plot datapoints
+rho <- ols.reg$coefficients["MARRATE"]
+delta <- ols.reg$coefficients["DIVRATE"]
+
+rate.plot <- ggplot(reg.dt, aes(x = MARRATE, y = DIVRATE)) +
+	geom_point(aes(size = WEIGHT, alpha = 0.05)) +
+	geom_segment(aes(x=0, y=delta, xend=rho, yend=0, color="red", size = 1.5)) +
+	guides(color="none", size="none", alpha="none")
+
+ggsave("rate-plot.pdf", path = "results")
