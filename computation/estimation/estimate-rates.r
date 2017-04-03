@@ -3,7 +3,7 @@
 # Min age is 25 because of endogeneity of college
 # ACS data: 2008-2014, ages 18-79 (note: AGE_SP is not limited).
 
-# TODO: try pooling -- just use age matching
+# TODO: pool -- just use age matching
 
 library(DBI) # RSQLite database functions
 library(data.table)
@@ -129,7 +129,7 @@ div.dt[, CPLDR := DTHRT_F + DTHRT_M - DTHRT_F * DTHRT_M]
 #div.dt[, DIVFLOW := MARSTOCK * (1 - CPLDR) - M1STOCK]
 
 # divorce rates calculated per separate cohort
-div.dt[, DIVRATE_C := 1 - CPLDR - M1STOCK / MARSTOCK] # 1 - death rate - non-div rate
+div.dt[, DIVRATE_C := 1 - CPLDR - (M1STOCK / MARSTOCK)] # 1 - death rate - non-div rate
 
 # merge in the average divorce rate and total marriage stock (by cohort)
 #   as well as stocks of singles
@@ -148,27 +148,29 @@ master.dt[, MARRATE := MARFLOW / SNG_M / SNG_F] # sequential division to prevent
 
 ### Weighted OLS ###
 
-#FIXME: DIVRATE has mean -0.34 and sd 1.07! Pool and trim.
+# drop NA rates
+reg.dt <- master.dt[!is.na(MARRATE) & !is.na(DIVRATE), .(MARRATE, DIVRATE, WEIGHT)]
 
-# drop NA rates, which may really bias the estimates
-reg.dt <- master.dt[!is.na(MARRATE) & !is.na(DIVRATE),
-					.(Y=1, MARRATE, DIVRATE, WEIGHT)] # add in Y for regression
+# drop noisy obs, which make DIVRATE negative
+wgt.min <- 100000 # min MARSTOCK to be included in regression
 
-# weighted regression without an intercept
-ols.reg <- lm(Y ~ 0 + MARRATE + DIVRATE, data=reg.dt, weights=WEIGHT)
+# weighted regression: DR = a + b*MR 
+ols.reg <- lm(DIVRATE ~ MARRATE, data=reg.dt[WEIGHT >= wgt.min], weights=WEIGHT)
+
+# back out parameters: DR = delta - delta/rho * MR
+#	Hence: delta = a, b = -delta/rho <=> rho = -delta/b
+delta <- ols.reg$coefficients["(Intercept)"]
+rho <- - delta / ols.reg$coefficients["MARRATE"]
 
 # save regression output to file
 reg.results <- capture.output(summary(ols.reg))
 cat("Full regression: couples matched on age, edu, race", reg.results,
-	file="results/full-reg.txt", sep="\n")
+	file="results/full-reg.txt", sep="\n") # raw table
+cat(paste0("rho,delta\n",rho,",",delta), file="results/rate-param.csv") # params only
 
-# plot datapoints
-rho <- 1 / ols.reg$coefficients["MARRATE"]
-delta <- 1 / ols.reg$coefficients["DIVRATE"]
-
-rate.plot <- ggplot(reg.dt, aes(x = MARRATE, y = DIVRATE)) +
+rate.plot <- ggplot(reg.dt[WEIGHT >= wgt.min], aes(x = MARRATE, y = DIVRATE)) +
 	geom_point(aes(size = WEIGHT, alpha = 0.05)) +
-	geom_segment(aes(x=0, y=delta, xend=rho, yend=0, color="red", size = 1.5)) +
+	geom_segment(aes(x=0, y=delta, xend=rho, yend=0, color="red")) +
 	guides(color="none", size="none", alpha="none")
 
 ggsave("rate-plot.pdf", path = "results")
