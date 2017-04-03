@@ -163,8 +163,8 @@ cat("Full regression: couples matched on age, edu, race", reg.results,
 	file="results/full-reg.txt", sep="\n")
 
 # plot datapoints
-rho <- ols.reg$coefficients["MARRATE"]
-delta <- ols.reg$coefficients["DIVRATE"]
+rho <- 1 / ols.reg$coefficients["MARRATE"]
+delta <- 1 / ols.reg$coefficients["DIVRATE"]
 
 rate.plot <- ggplot(reg.dt, aes(x = MARRATE, y = DIVRATE)) +
 	geom_point(aes(size = WEIGHT, alpha = 0.05)) +
