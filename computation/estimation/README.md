@@ -15,9 +15,22 @@ Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean th
 ## Estimation of model objects
 
 * Using `R` and `data.table`: query aggregated population counts in each desired metro
-	* Smooth raw population counts appropriately with kernel density estimator (Nadaraya-Watson with Sheather-Jones bandwidth)
-	* Save smoothed data for loading into `julia`
+	* Smooth raw population counts: non-parametric regression (local-linear)
+	* Save smoothed data to csv for loading into `julia`
 * Using `julia`: convert DataFrames to multidimensional arrays (per metro)
-	* populations: single men, single women, couples
+	* populations: total men, total women, single men, single women, couples
 	* compute estimates: alpha, surplus, production function
 	* average the production function estimates to get a global result
+
+## 10 largest metro areas
+
+* 35620: New York-Newark-Jersey City, NY-NJ-PA
+* 31080: Los Angeles-Long Beach-Anaheim, CA
+* 16980: Chicago-Naperville-Elgin, IL-IN-WI
+* 19100: Dallas-Fort Worth-Arlington, TX
+* 37980: Philadelphia-Camden-Wilmington, PA-NJ-DE-MD
+* 26420: Houston-The Woodlands-Sugar Land, TX
+* 47900: Washington-Arlington-Alexandria, DC-VA-MD-WV
+* 33100: Miami-Fort Lauderdale-West Palm Beach, FL
+* 12060: Atlanta-Sandy Springs-Roswell, GA
+* 14460: Boston-Cambridge-Newton, MA-NH
