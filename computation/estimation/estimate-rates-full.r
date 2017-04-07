@@ -3,33 +3,31 @@
 # Min age is 25 because of endogeneity of college
 # ACS data: 2008-2014, ages 18-79 (note: AGE_SP is not limited).
 
-# TODO: pool -- just use age matching
-
 library(DBI) # RSQLite database functions
 library(data.table)
 library(zoo) # for interpolating mortality rates with na.approx
 library(ggplot2)
 
 # load up CDC mortality table: by sex, age, and minority
-mort.dt <- fread('mort-full_08-15.csv')
+mort.dt <- fread('data/mort-full_08-15.csv')
 
 # connect to sqlite database
 # table name: acs
-db = dbConnect(RSQLite::SQLite(), 'acs_08-14.db')
+db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-14.db')
 
 
 ### Categorization ###
 
-case_minority = ' case when "RACESING" in (1,4) and "HISPAN" = 0 then 0 else 1 end '
-case_minority_sp = ' case when "RACESING_SP" in (1,4) and "HISPAN_SP" = 0 then 0 else 1 end '
-case_college = ' case when "EDUC" >= 10 then 1 else 0 end '
-case_college_sp = ' case when "EDUC_SP" >= 10 then 1 else 0 end '
+case_minority <- ' case when "RACESING" in (1,4) and "HISPAN" = 0 then 0 else 1 end '
+case_minority_sp <- ' case when "RACESING_SP" in (1,4) and "HISPAN_SP" = 0 then 0 else 1 end '
+case_college <- ' case when "EDUC" >= 10 then 1 else 0 end '
+case_college_sp <- ' case when "EDUC_SP" >= 10 then 1 else 0 end '
 
 
 ### Queries ###
 
 # flows: counts of new marriages by type pair
-qry_marr_flow = paste0('select
+qry_marr_flow <- paste0('select
 		"AGE_SP" as AGE_M, ', case_college_sp, ' as COLLEGE_M, ', case_minority_sp, ' as MINORITY_M,
 		"AGE" as AGE_F, ', case_college, ' as COLLEGE_F, ', case_minority, ' as MINORITY_F,
 		sum("HHWT") as MARFLOW
@@ -41,7 +39,7 @@ qry_marr_flow = paste0('select
 
 # stocks (lagged): counts of all marriages by type pair (by year for separating cohorts)
 #	drop the final survey year as unused
-qry_marr_stock = paste0('select "YEAR" + 1 as YEAR,
+qry_marr_stock <- paste0('select "YEAR" + 1 as YEAR,
 		"AGE_SP" + 1 as AGE_M, ', case_college_sp, ' as COLLEGE_M, ', case_minority_sp, ' as MINORITY_M,
 		"AGE" + 1 as AGE_F, ', case_college, ' as COLLEGE_F, ', case_minority, ' as MINORITY_F,
 		sum("HHWT") as MARSTOCK
@@ -54,7 +52,7 @@ qry_marr_stock = paste0('select "YEAR" + 1 as YEAR,
 
 # stocks of surviving marriages (by year for separating cohorts)
 #	drop the initial survey year as unused
-qry_m1_stock = paste0('select "YEAR" as YEAR,
+qry_m1_stock <- paste0('select "YEAR" as YEAR,
 		"AGE_SP" as AGE_M, ', case_college_sp, ' as COLLEGE_M, ', case_minority_sp, ' as MINORITY_M,
 		"AGE" as AGE_F, ', case_college, ' as COLLEGE_F, ', case_minority, ' as MINORITY_F,
 		sum("HHWT") as M1STOCK
@@ -66,7 +64,7 @@ qry_m1_stock = paste0('select "YEAR" as YEAR,
 	group by YEAR, AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F')
 
 # counts of singles eligible to marry within the past year
-qry_men_elig = paste0('select
+qry_men_elig <- paste0('select
 		"AGE" as AGE_M, ', case_college, ' as COLLEGE_M, ', case_minority, ' as MINORITY_M,
 		sum("PERWT") as SNG_M
 	from acs
@@ -74,7 +72,7 @@ qry_men_elig = paste0('select
 		and ("MARRINYR" = 2 or "MARST" >= 3)
 		and "DIVINYR" != 2
 	group by AGE_M, COLLEGE_M, MINORITY_M')
-qry_wom_elig = paste0('select
+qry_wom_elig <- paste0('select
 		"AGE" as AGE_F, ', case_college, ' as COLLEGE_F, ', case_minority, ' as MINORITY_F,
 		sum("PERWT") as SNG_F
 	from acs
@@ -84,12 +82,12 @@ qry_wom_elig = paste0('select
 	group by AGE_F, COLLEGE_F, MINORITY_F')
 
 # queries return dataframes, convert to data.table
-master.dt = data.table(dbGetQuery(db, qry_marr_flow))
-mar.stock = data.table(dbGetQuery(db, qry_marr_stock))
-m1.stock = data.table(dbGetQuery(db, qry_m1_stock))
+master.dt <- data.table(dbGetQuery(db, qry_marr_flow))
+mar.stock <- data.table(dbGetQuery(db, qry_marr_stock))
+m1.stock <- data.table(dbGetQuery(db, qry_m1_stock))
 
-men.elig = data.table(dbGetQuery(db, qry_men_elig))
-wom.elig = data.table(dbGetQuery(db, qry_wom_elig))
+men.elig <- data.table(dbGetQuery(db, qry_men_elig))
+wom.elig <- data.table(dbGetQuery(db, qry_wom_elig))
 
 
 ### Death rates ###

@@ -10,18 +10,18 @@ library(data.table)
 library(zoo) # for interpolating mortality rates with na.approx
 library(ggplot2)
 
-# load up CDC mortality table: by sex, age, and minority
-mort.dt <- fread('mort_08-15.csv')
+# load up CDC mortality table: by sex, age
+mort.dt <- fread('data/mort_08-15.csv')
 
 # connect to sqlite database
 # table name: acs
-db = dbConnect(RSQLite::SQLite(), 'acs_08-14.db')
+db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-14.db')
 
 
 ### Queries ###
 
 # flows: counts of new marriages by type pair
-qry_marr_flow = 'select "AGE_SP" as AGE_M, "AGE" as AGE_F, sum("HHWT") as MARFLOW
+qry_marr_flow <- 'select "AGE_SP" as AGE_M, "AGE" as AGE_F, sum("HHWT") as MARFLOW
 	from acs
 	where "MARRINYR" = 2 and "MARST" <= 2
 		and "SEX" = 2
@@ -30,7 +30,7 @@ qry_marr_flow = 'select "AGE_SP" as AGE_M, "AGE" as AGE_F, sum("HHWT") as MARFLO
 
 # stocks (lagged): counts of all marriages by type pair (by year for separating cohorts)
 #	drop the final survey year as unused
-qry_marr_stock ='select "YEAR" + 1 as YEAR,
+qry_marr_stock <- 'select "YEAR" + 1 as YEAR,
 	"AGE_SP" + 1 as AGE_M, "AGE" + 1 as AGE_F, sum("HHWT") as MARSTOCK
 	from acs
 	where "MARST" <= 2
@@ -41,7 +41,7 @@ qry_marr_stock ='select "YEAR" + 1 as YEAR,
 
 # stocks of surviving marriages (by year for separating cohorts)
 #	drop the initial survey year as unused
-qry_m1_stock = 'select "YEAR" as YEAR,
+qry_m1_stock <- 'select "YEAR" as YEAR,
 		"AGE_SP" as AGE_M, "AGE" as AGE_F, sum("HHWT") as M1STOCK
 	from acs
 	where "MARST" <= 2 and "MARRINYR" != 2
@@ -51,14 +51,14 @@ qry_m1_stock = 'select "YEAR" as YEAR,
 	group by YEAR, AGE_M, AGE_F'
 
 # counts of singles eligible to marry within the past year
-qry_men_elig = 'select "AGE" as AGE_M, sum("PERWT") as SNG_M
+qry_men_elig <- 'select "AGE" as AGE_M, sum("PERWT") as SNG_M
 	from acs
 	where "SEX" = 1 and AGE_M >= 25
 		and ("MARRINYR" = 2 or "MARST" >= 3)
 		and "DIVINYR" != 2
 	group by AGE_M'
 
-qry_wom_elig = 'select "AGE" as AGE_F, sum("PERWT") as SNG_F
+qry_wom_elig <- 'select "AGE" as AGE_F, sum("PERWT") as SNG_F
 	from acs
 	where "SEX" = 2 and AGE_F >= 25
 		and ("MARRINYR" = 2 or "MARST" >= 3)
@@ -66,12 +66,12 @@ qry_wom_elig = 'select "AGE" as AGE_F, sum("PERWT") as SNG_F
 	group by AGE_F'
 
 # queries return dataframes, convert to data.table
-master.dt = data.table(dbGetQuery(db, qry_marr_flow))
-mar.stock = data.table(dbGetQuery(db, qry_marr_stock))
-m1.stock = data.table(dbGetQuery(db, qry_m1_stock))
+master.dt <- data.table(dbGetQuery(db, qry_marr_flow))
+mar.stock <- data.table(dbGetQuery(db, qry_marr_stock))
+m1.stock <- data.table(dbGetQuery(db, qry_m1_stock))
 
-men.elig = data.table(dbGetQuery(db, qry_men_elig))
-wom.elig = data.table(dbGetQuery(db, qry_wom_elig))
+men.elig <- data.table(dbGetQuery(db, qry_men_elig))
+wom.elig <- data.table(dbGetQuery(db, qry_wom_elig))
 
 
 ### Death rates ###
