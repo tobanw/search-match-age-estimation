@@ -5,9 +5,6 @@
 # Min age is 25 because of endogeneity of college
 # ACS data: 2008-2014, ages 18-79 (note: AGE_SP is not limited).
 
-# TODO: try quarterly age resolution for npreg; save smoothed values on chosen (coarser) age grid
-# TODO: merge death rates
-
 library(DBI) # RSQLite database functions
 library(data.table)
 library(np) # non-parametric regression
@@ -26,16 +23,16 @@ case_college_sp <- ' case when "EDUC_SP" >= 10 then 1 else 0 end '
 
 # top 10 largest MSAs
 top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
-#top_msa <- ' MSA in (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460) '
-top_msa <- ' MSA == 35620 ' # TEST
+top_msa <- ' MSA in (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460) '
 
 # terminal age
 max.age <- 65
 
 # complete grids to merge in
-men.grid <- CJ(AGE_M = 25:79, COLLEGE_M = 0:1, MINORITY_M = 0:1)
-wom.grid <- CJ(AGE_F = 25:79, COLLEGE_F = 0:1, MINORITY_F = 0:1)
-mar.grid <- CJ(AGE_M = 25:79, COLLEGE_M = 0:1, MINORITY_M = 0:1, AGE_F = 25:79, COLLEGE_F = 0:1, MINORITY_F = 0:1)
+men.grid <- CJ(MSA = top.msa, AGE_M = 25:79, COLLEGE_M = 0:1, MINORITY_M = 0:1)
+wom.grid <- CJ(MSA = top.msa, AGE_F = 25:79, COLLEGE_F = 0:1, MINORITY_F = 0:1)
+mar.grid <- CJ(MSA = top.msa, AGE_M = 25:79, COLLEGE_M = 0:1, MINORITY_M = 0:1,
+			   AGE_F = 25:79, COLLEGE_F = 0:1, MINORITY_F = 0:1)
 
 
 ### Queries ###
@@ -80,15 +77,19 @@ qry_marr <- paste0('select "MET2013" as MSA,
 		and ', top_msa,
 	'group by MSA, AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F')
 
-# TODO: merging doesn't add MSA, so all the merged rows have NA
 # queries return dataframes, convert to data.table and merge into the complete grid
-men.tot <- merge(data.table(dbGetQuery(db, qry_men_tot)), men.grid, all=TRUE, by=c("AGE_M", "COLLEGE_M", "MINORITY_M"))
-wom.tot <- merge(data.table(dbGetQuery(db, qry_wom_tot)), wom.grid, all=TRUE, by=c("AGE_F", "COLLEGE_F", "MINORITY_F"))
-men.sng <- merge(data.table(dbGetQuery(db, qry_men_sng)), men.grid, all=TRUE, by=c("AGE_M", "COLLEGE_M", "MINORITY_M"))
-wom.sng <- merge(data.table(dbGetQuery(db, qry_wom_sng)), wom.grid, all=TRUE, by=c("AGE_F", "COLLEGE_F", "MINORITY_F"))
-marriages <- merge(data.table(dbGetQuery(db, qry_marr)), mar.grid, all=TRUE, by=c("AGE_M", "COLLEGE_M", "MINORITY_M", "AGE_F", "COLLEGE_F", "MINORITY_F"))
+men.tot <- merge(data.table(dbGetQuery(db, qry_men_tot)), men.grid,
+				 all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M"))
+wom.tot <- merge(data.table(dbGetQuery(db, qry_wom_tot)), wom.grid,
+				 all=TRUE, by=c("MSA", "AGE_F", "COLLEGE_F", "MINORITY_F"))
+men.sng <- merge(data.table(dbGetQuery(db, qry_men_sng)), men.grid,
+				 all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M"))
+wom.sng <- merge(data.table(dbGetQuery(db, qry_wom_sng)), wom.grid,
+				 all=TRUE, by=c("MSA", "AGE_F", "COLLEGE_F", "MINORITY_F"))
+marriages <- merge(data.table(dbGetQuery(db, qry_marr)), mar.grid,
+				   all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M", "AGE_F", "COLLEGE_F", "MINORITY_F"))
 
-# drop men older than 79
+# drop men older than 79 (sample only restricts AGE < 80, not AGE_SP)
 marriages <- marriages[AGE_M <= 79]
 
 # fill NA with zeros before smoothing
@@ -140,43 +141,67 @@ wom.tot[, MASS := predict(npreg(bws=npregbw(formula = WOM ~ AGE_F + COLLEGE_F + 
 ## combine groups with age >= max.age (truncation at T)
 
 # lump together truncated masses to be merged back in
-trm.men.sng <- men.sng[AGE_M >= max.age, .(AGE_M = max.age, MASS = sum(MASS)), by = .(MSA, COLLEGE_M, MINORITY_M)]
-trm.men.tot <- men.tot[AGE_M >= max.age, .(AGE_M = max.age, MASS = sum(MASS)), by = .(MSA, COLLEGE_M, MINORITY_M)]
-trm.wom.sng <- wom.sng[AGE_F >= max.age, .(AGE_F = max.age, MASS = sum(MASS)), by = .(MSA, COLLEGE_F, MINORITY_F)]
-trm.wom.tot <- wom.tot[AGE_F >= max.age, .(AGE_F = max.age, MASS = sum(MASS)), by = .(MSA, COLLEGE_F, MINORITY_F)]
+trm.men.sng <- men.sng[AGE_M >= max.age,
+					   .(AGE_M = max.age, MASS = sum(MASS)),
+					   by = .(MSA, COLLEGE_M, MINORITY_M)]
+trm.men.tot <- men.tot[AGE_M >= max.age,
+					   .(AGE_M = max.age, MASS = sum(MASS)),
+					   by = .(MSA, COLLEGE_M, MINORITY_M)]
+trm.wom.sng <- wom.sng[AGE_F >= max.age,
+					   .(AGE_F = max.age, MASS = sum(MASS)),
+					   by = .(MSA, COLLEGE_F, MINORITY_F)]
+trm.wom.tot <- wom.tot[AGE_F >= max.age,
+					   .(AGE_F = max.age, MASS = sum(MASS)),
+					   by = .(MSA, COLLEGE_F, MINORITY_F)]
 
 # drop and merge truncated masses
-men.sng <- merge(men.sng[AGE_M < max.age], trm.men.sng, all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M", "MASS"))
-men.tot <- merge(men.tot[AGE_M < max.age], trm.men.tot, all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M", "MASS"))
-wom.sng <- merge(wom.sng[AGE_F < max.age], trm.wom.sng, all=TRUE, by=c("MSA", "AGE_F", "COLLEGE_F", "MINORITY_F", "MASS"))
-wom.tot <- merge(wom.tot[AGE_F < max.age], trm.wom.tot, all=TRUE, by=c("MSA", "AGE_F", "COLLEGE_F", "MINORITY_F", "MASS"))
+men.sng <- merge(men.sng[AGE_M < max.age], trm.men.sng,
+				 all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M", "MASS"))
+men.tot <- merge(men.tot[AGE_M < max.age], trm.men.tot,
+				 all=TRUE, by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M", "MASS"))
+wom.sng <- merge(wom.sng[AGE_F < max.age], trm.wom.sng,
+				 all=TRUE, by=c("MSA", "AGE_F", "COLLEGE_F", "MINORITY_F", "MASS"))
+wom.tot <- merge(wom.tot[AGE_F < max.age], trm.wom.tot,
+				 all=TRUE, by=c("MSA", "AGE_F", "COLLEGE_F", "MINORITY_F", "MASS"))
 
+#	But npreg didn't get past 1/5 in 15h. The full grid (zero-filled) is that much larger.
+#	Idea: first do a fast search with generous tolerances, then do a precise search from that starting value 
 
 # marriages
-# TODO: batch smoothing for marriages
-# extremely slow with product kernel: on the order of 15h per MSA (feasible for ~10 MSAs)
-# try sample splitting, 16 categorical combos
-# -> formula = MARRIAGES ~ AGE_M + AGE_F,... by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)
-# if still slow, just limit to top MSAs
 
-marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + COLLEGE_M + MINORITY_M + AGE_F + COLLEGE_F + MINORITY_F,
-											  regtype="ll",
-											  bwmethod="cv.aic",
-											  data=.SD)),
-							newdata=.SD),
-          by = MSA]
+# sample splitting, 16 categorical combos: tolerable (on the order of 10m per group but 16 groups per MSA)
+#	* using all 6 variables (product kernels) is extremely slow due to curse of dimensionality (multiple days per MSA)
+#	* try: use a shell script to launch 10 different R instances with one MSA each
+
+print("Starting non-parametric regression on couple masses.")
+print("This will take a while...")
+
+marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + AGE_F,
+													regtype="ll",
+													bwmethod="cv.aic",
+													data=.SD)),
+								  newdata=.SD),
+          by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
+
+# full product kernel on all 6 variables
+#marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + COLLEGE_M + MINORITY_M + AGE_F + COLLEGE_F + MINORITY_F,
+#											  regtype="ll",
+#											  bwmethod="cv.aic",
+#											  data=.SD)),
+#							newdata=.SD),
+#          by = MSA]
 
 # both >= max.age
 trm.both.mar <- marriages[AGE_M >= max.age & AGE_F >= max.age,
-						  .(AGE_M = max.age, AGE_F = max.age, MASS := sum(MASS)),
+						  .(AGE_M = max.age, AGE_F = max.age, MASS = sum(MASS)),
 						  by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
 # husband >= max.age, wife < max.age: group within each wife age
 trm.husb <- marriages[AGE_M >= max.age & AGE_F < max.age,
-					  .(AGE_M = max.age, MASS := sum(MASS)),
+					  .(AGE_M = max.age, MASS = sum(MASS)),
 					  by = .(MSA, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F)]
 # husband < max.age, wife >= max.age: group within each husband age
 trm.wife <- marriages[AGE_M < max.age & AGE_F >= max.age,
-					  .(AGE_F = max.age, MASS := sum(MASS)),
+					  .(AGE_F = max.age, MASS = sum(MASS)),
 					  by = .(MSA, AGE_M, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
 
 # drop and merge each segment
@@ -187,8 +212,8 @@ marr <- merge(marr, trm.husb, all=TRUE,
 marr <- merge(marr, trm.wife, all=TRUE,
 			  by=c("MSA", "AGE_M", "COLLEGE_M", "MINORITY_M", "AGE_F", "COLLEGE_F", "MINORITY_F", "MASS"))
 
-
-#TODO: verify no zeros, fill with ones if necessary
+# llr on marr gives lots of negatives and tiny fractions: truncate to min of 1
+marr[MASS < 1.0, MASS := 1.0]
 
 
 ### Save output ###
