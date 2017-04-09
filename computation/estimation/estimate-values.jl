@@ -49,10 +49,10 @@ end # marr_array
 ### PARAMS ### 
 
 # arrival rates from `results/rate-param.csv`
-ρ = 6.2e-9
+λ = 6.2e-9
 δ = 0.0117
 
-ϕ = 1.0 # aging rate
+ρ = 1.0 # aging rate
 
 # death arrival rates: includes age 25
 ψ_m = indiv_array(readtable("results/men-psi.csv")) # (AGE, COLLEGE, MINORITY, PSI)
@@ -84,8 +84,8 @@ function compute_alpha(mar_init::Array, um_init::Array, uf_init::Array)
 	for xy in CartesianRange(m)
 		x = xy.I[1:3]
 		y = xy.I[4:6]
-		α[xy] = (m[xy] * (ϕ + δ + ψ_m[x] + ψ_f[y] ) - ϕ * mar_init[xy]) /
-		        (ρ * u_m[x] * u_f[y] + δ * m[xy])
+		α[xy] = (m[xy] * (ρ + δ + ψ_m[x] + ψ_f[y] ) - ρ * mar_init[xy]) /
+		        (λ * u_m[x] * u_f[y] + δ * m[xy])
 	end
 	return clamp.(α, 1e-6, 1 - 1e-6) # enforce 0 < α < 1
 end

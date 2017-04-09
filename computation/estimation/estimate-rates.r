@@ -141,20 +141,20 @@ reg.dt <- master.dt[!is.na(MARRATE) & !is.na(DIVRATE) &
 #	enforce minimum weight and trim outliers
 ols.reg <- lm(DIVRATE ~ MARRATE, data=reg.dt, weights=WEIGHT)
 
-# back out parameters: DR = delta - delta/rho * MR
-#	Hence: delta = a, b = -delta/rho <=> rho = -delta/b
+# back out parameters: DR = delta - delta/lambda * MR
+#	Hence: delta = a, b = -delta/lambda <=> lambda = -delta/b
 delta <- ols.reg$coefficients["(Intercept)"]
-rho <- - delta / ols.reg$coefficients["MARRATE"]
+lambda <- - delta / ols.reg$coefficients["MARRATE"]
 
 # save regression output to file
 reg.results <- capture.output(summary(ols.reg))
 cat("Full regression: couples matched on age, edu, race", reg.results,
 	file="results/reg-results.txt", sep="\n") # raw table
-cat(paste0("rho,delta\n",rho,",",delta), file="results/rate-param.csv") # params only
+cat(paste0("lambda,delta\n",lambda,",",delta), file="results/rate-param.csv") # params only
 
 rate.plot <- ggplot(reg.dt, aes(x = MARRATE, y = DIVRATE)) +
 	geom_point(aes(size = WEIGHT, alpha = 0.05)) +
-	geom_segment(aes(x=0, y=delta, xend=rho, yend=0, color="red")) +
+	geom_segment(aes(x=0, y=delta, xend=lambda, yend=0, color="red")) +
 	guides(color="none", size="none", alpha="none")
 
 ggsave("rate-plot.pdf", path = "results")
