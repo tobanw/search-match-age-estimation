@@ -6,12 +6,21 @@ using DataTables, Query, Distributions, JLD
 # TODO:
 #	* optimization: declare params as constants
 
+# NOTE: must match `max.age` from `smooth-pop.r` and mortality data
+max_age = 65 # terminal age (inclusive)
+min_age = 25 # initial age (excluded)
+n_ages = max_age - min_age # excluding 25
+
+# NOTE: must match `top.msa` from `smooth-pop.r`
+top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
+
+
 ### Array Conversion ###
 
-"Construct and fill array for individual masses in one marriage	market."
+"Construct and fill array for individual values in one marriage	market."
 function indiv_array(val_dt::DataTable)
     # instantiate empty array: age, edu, race
-	valarray = Array(Float64, (n_ages,2,2))
+	valarray = Array(Float64, (n_ages+1,2,2)) # include age 25 for inflows
 
     # fill counts
 	rowidx = Array(Int64, 3) # initialize empty vector for reuse
@@ -30,7 +39,7 @@ end # indiv_array
 function marr_array(counts::DataTable)
 	# assumes counts has 3+3 type cols plus masses (no MSA or other cols)
     # instantiate empty array
-	massarray = Array(Float64, (n_ages,2,2,n_ages,2,2))
+	massarray = Array(Float64, (n_ages+1,2,2,n_ages+1,2,2)) # include age 25 for inflows
 
     # fill counts
 	rowidx = Array(Int64, 6) # initialize empty vector for reuse
@@ -49,43 +58,55 @@ end # marr_array
 ### PARAMS ### 
 
 # arrival rates from `results/rate-param.csv`
-λ = 6.2e-9
-δ = 0.0117
+#λ = 6.2e-9
+#δ = 0.0117
 
+# TEST: sensible arrival rates
+λ = 0.00003
+δ = 0.025
+
+r = 0.04 # discount rate
 ρ = 1.0 # aging rate
 
 # death arrival rates: includes age 25
 ψ_m = indiv_array(readtable("results/men-psi.csv")) # (AGE, COLLEGE, MINORITY, PSI)
 ψ_f = indiv_array(readtable("results/wom-psi.csv")) # (AGE, COLLEGE, MINORITY, PSI)
+
+# array of d factors
+d = Array(Float64, (n_ages,2,2,n_ages,2,2))
+for xy in CartesianRange(size(d))
+	x = xy.I[1:3]
+	y = xy.I[4:6]
+	d[xy] = 1 ./ (r + ρ + δ + ψ_m[x...] + ψ_f[y...])
+end
  
+# array of c factors
+c = 1 + ρ * d # initialize the boundary (interior will be overwritten sequentially)
+for k in 1:n_ages
+	# progressively fill layers from boundary inwards
+	c[1:end-k,:,:,1:end-k,:,:] = 1 + ρ * d[1:end-k,:,:,1:end-k,:,:] .* c[2:end-k+1,:,:,2:end-k+1,:,:]
+end
+
 # inverse cdf of standard normal distribution (for inverting α)
 const STDNORMAL = Normal()
 Φ_inv(x::Real) = quantile(STDNORMAL, x)
-
-# NOTE: must match `max.age` from `smooth-pop.r`
-max_age = 65 # terminal age (inclusive)
-min_age = 25 # initial age (inclusive)
-n_ages = max_age - min_age + 1 # inclusive of both endpoints
-
-# NOTE: must match `top.msa` from `smooth-pop.r`
-top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
 
 
 ### Estimation Functions ###
 
 "Compute α for a given MSA"
 function compute_alpha(mar_init::Array, um_init::Array, uf_init::Array)
-	# trim off initial ages
+	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 	u_m = um_init[2:end,:,:]
 	u_f = uf_init[2:end,:,:]
 
 	α = similar(m) # instantiate alpha array
-	for xy in CartesianRange(m)
+	for xy in CartesianRange(size(m))
 		x = xy.I[1:3]
 		y = xy.I[4:6]
-		α[xy] = (m[xy] * (ρ + δ + ψ_m[x] + ψ_f[y] ) - ρ * mar_init[xy]) /
-		        (λ * u_m[x] * u_f[y] + δ * m[xy])
+		α[xy] = (m[xy] * (ρ + δ + ψ_m[x...] + ψ_f[y...] ) - ρ * mar_init[xy]) /
+		        (λ * u_m[x...] * u_f[y...] + δ * m[xy])
 	end
 	return clamp.(α, 1e-6, 1 - 1e-6) # enforce 0 < α < 1
 end
@@ -95,8 +116,6 @@ function μ(a::Real)
 	st = Φ_inv(1-a) # pre-compute -s/σ = Φ^{-1}(1-a)
 	return pdf(STDNORMAL, st) - a * st
 end
-
-# TODO: c, d
 
 
 ### Perform Estimation ###
@@ -120,7 +139,7 @@ production = Dict{AbstractString, Array}()
 
 for msa in top_msa
 
-    # population arrays
+	# population arrays (NOTE: includes age 25)
 	men_sng["$msa"] = indiv_array(@from i in dt_men_sng begin
                                   @where i.MSA == msa
                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
@@ -155,7 +174,7 @@ for msa in top_msa
 	alpha["$msa"] = compute_alpha(marriages["$msa"], men_sng["$msa"], wom_sng["$msa"])
 
     # marital surplus (S)
-	surplus["$msa"] = Φ_inv.(alpha["$msa"])
+	surplus["$msa"] = -c .* Φ_inv.(1 .- alpha["$msa"])
 
     # marital production (f)
     #production["$msa"] = 
