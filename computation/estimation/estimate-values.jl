@@ -1,127 +1,85 @@
 # Use smoothed population masses and estimated arrival rates to recover marital production function by MSA
 # Treat initial age as birth inflow (mass * phi), use u[2:end], n[2:end,2:end] for alpha, s, f
 
-using DataTables, Query, Distributions, JLD
 
-# NOTE: must match `max.age` from `smooth-pop.r` and mortality data
-const max_age = 65 # terminal age (inclusive)
-const min_age = 25 # initial age (excluded)
-const n_ages = max_age - min_age # excluding 25
-const n_years = 7 # 2008-2014
-
-# NOTE: must match `top.msa` from `smooth-pop.r`
-const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
-
-### PARAMS ### 
-
-# arrival rates from `results/rate-param.csv`
-#λ = 6.2e-9
-#δ = 0.0117
-
-# TEST: sensible arrival rates
-const λ = 0.000003
-const δ = 0.025
-
-const r = 0.04 # discount rate
-const ρ = 1.0 # aging rate
-
-
-### Array Conversion ###
-
-"Construct and fill array for individual values in one marriage	market."
-function indiv_array(val_dt::DataTable)
-    # instantiate empty array: age, edu, race
-	valarray = Array(Float64, (n_ages+1,2,2)) # include age 25 for inflows
-
-    # fill counts
-	rowidx = Array(Int64, 3) # initialize empty vector for reuse
-    for i in 1:size(val_dt,1) # loop over rows of table
-		# map values to array indices
-        # rac, edu: map 0:1 to 1:2
-		# age: map to 1:n_ages
-		rowidx[:] = squeeze(Array(val_dt[i,1:end-1]), 1) + [1 - min_age, 1, 1]
-		valarray[rowidx...] = get(val_dt[i,end]) # last dim is counts
-    end
-
-    return valarray
-end # indiv_array
- 
-"Construct and fill array for couple masses in one marriage	market."
-function marr_array(counts::DataTable)
-	# assumes counts has 3+3 type cols plus masses (no MSA or other cols)
-    # instantiate empty array
-	massarray = Array(Float64, (n_ages+1,2,2,n_ages+1,2,2)) # include age 25 for inflows
-
-    # fill counts
-	rowidx = Array(Int64, 6) # initialize empty vector for reuse
-    for i in 1:size(counts,1) # loop over rows of table
-		# map values to array indices
-        # rac, edu: map 0:1 to 1:2
-		# age: map to 1:n_ages
-		rowidx[:] = squeeze(Array(counts[i,1:end-1]), 1) + [1 - min_age, 1, 1, 1 - min_age, 1, 1]
-		massarray[rowidx...] = get(counts[i,end]) # last dim is counts
-    end
-
-    return massarray
-end # marr_array
-
+using Distributions
 
 ### Other Estimation Objects ###
 
-# death arrival rates: includes age 25
-ψ_m = indiv_array(readtable("results/men-psi.csv")) # (AGE, COLLEGE, MINORITY, PSI)
-ψ_f = indiv_array(readtable("results/wom-psi.csv")) # (AGE, COLLEGE, MINORITY, PSI)
+"Compute array of d factors (discount factors on surplus)."
+function compute_d(δ::Real, ψ_m::Array, ψ_f::Array)
+	d = Array(Float64, (n_ages,2,2,n_ages,2,2)) # NOTE: n_ages excludes age 25
+	for xy in CartesianRange(size(d))
+		x = xy.I[1:3]
+		y = xy.I[4:6]
+		d[xy] = 1 ./ (r + ρ + δ + ψ_m[x...] + ψ_f[y...])
+	end
+	# terminal case: d^{T,T} has no ρ (aging stops)
+	d_term = Array(Float64, (2,2,2,2))
+	for xy in CartesianRange(size(d_term))
+		x = xy.I[1:2]
+		y = xy.I[3:4]
+		d_term[xy] = 1 ./ (r + δ + ψ_m[end,x...] + ψ_f[end,y...]) #	ages (T,T)
+	end
+	# overwrite with terminal case
+	d[end,:,:,end,:,:] = d_term
 
-# array of d factors (discount factors on surplus)
-d = Array(Float64, (n_ages,2,2,n_ages,2,2))
-for xy in CartesianRange(size(d))
-	x = xy.I[1:3]
-	y = xy.I[4:6]
-	d[xy] = 1 ./ (r + ρ + δ + ψ_m[x...] + ψ_f[y...])
-end
-# terminal case: d^{T,T} has no ρ (aging stops)
-d_term = Array(Float64, (2,2,2,2))
-for xy in CartesianRange(size(d_term))
-	x = xy.I[1:2]
-	y = xy.I[3:4]
-	d_term[xy] = 1 ./ (r + δ + ψ_m[end,x...] + ψ_f[end,y...]) #	ages (T,T)
-end
-# overwrite with terminal case
-d[end,:,:,end,:,:] = d_term
-
-# array of c factors (accumulated discount factors on future surpluses)
-# 3 steps: (T,T) base case, then (a,T) and (T,b) boundaries, then interior
-c = 1 + ρ * d # initialize array: only T,T terminal value is correct
-# recursively fill boundary 
-for k in 1:n_ages-1
-	c[end,:,:,end-k,:,:] = 1 + ρ * d[end,:,:,end-k,:,:] .* c[end,:,:,end-k+1,:,:] # age T husbands
-	c[end-k,:,:,end,:,:] = 1 + ρ * d[end-k,:,:,end,:,:] .* c[end-k+1,:,:,end,:,:] # age T wives
-end
-# recursively fill layers from boundary inwards
-for k in 1:n_ages-1
-	c[1:end-k,:,:,1:end-k,:,:] = 1 + ρ * d[1:end-k,:,:,1:end-k,:,:] .* c[2:end-k+1,:,:,2:end-k+1,:,:]
+	return d
 end
 
-# c1: shifted array of c factors, c^{a+1,b+1}
-# 3 steps: (T,T) base case, then (a,T) and (T,b) boundaries, then interior
-c1 = ones(d) # initialize array: only T,T terminal value is correct, c^{T+1,T+1} = 1
-# recursively fill boundary 
-for k in 1:n_ages-1
-	c1[end,:,:,end-k,:,:] = c[end,:,:,end-k+1,:,:] # age T husbands
-	c1[end-k,:,:,end,:,:] = c[end-k+1,:,:,end,:,:] # age T wives
+"Compute array of c factors (accumulated discount factors on future surpluses)."
+function compute_c(d::Array)
+	# 3 steps: (T,T) base case, then (a,T) and (T,b) boundaries, then interior
+	c = 1 + ρ * d # initialize array: only T,T terminal value is correct
+	# recursively fill boundary 
+	for k in 1:n_ages-1
+		c[end,:,:,end-k,:,:] = 1 + ρ * d[end,:,:,end-k,:,:] .* c[end,:,:,end-k+1,:,:] # age T husbands
+		c[end-k,:,:,end,:,:] = 1 + ρ * d[end-k,:,:,end,:,:] .* c[end-k+1,:,:,end,:,:] # age T wives
+	end
+	# recursively fill layers from boundary inwards
+	for k in 1:n_ages-1
+		c[1:end-k,:,:,1:end-k,:,:] = 1 + ρ * d[1:end-k,:,:,1:end-k,:,:] .* c[2:end-k+1,:,:,2:end-k+1,:,:]
+	end
+
+	return c
 end
-# fill interior
-c1[1:end-1,:,:,1:end-1,:,:] = c[2:end,:,:,2:end,:,:]
+
+"Compute shifted array of c factors, c^{a+1,b+1}."
+function compute_c1(c::Array)
+	# 3 steps: (T,T) base case, then (a,T) and (T,b) boundaries, then interior
+	c1 = ones(c) # initialize array: only T,T terminal value is correct, c^{T+1,T+1} = 1
+	# recursively fill boundary 
+	for k in 1:n_ages-1
+		c1[end,:,:,end-k,:,:] = c[end,:,:,end-k+1,:,:] # age T husbands
+		c1[end-k,:,:,end,:,:] = c[end-k+1,:,:,end,:,:] # age T wives
+	end
+	# fill interior
+	c1[1:end-1,:,:,1:end-1,:,:] = c[2:end,:,:,2:end,:,:]
+
+	return c1
+end
 
 # inverse cdf of standard normal distribution (for inverting α)
 const STDNORMAL = Normal()
 Φ_inv(x::Real) = quantile(STDNORMAL, x)
 
+"μ function, using inverse Mills ratio: E[z|z>q] = σ ϕ(q/σ) / (1 - Φ(q/σ))."
+function μ(a::Real)
+	st = Φ_inv(1-a) # pre-compute -s/σ = Φ^{-1}(1-a)
+	return pdf(STDNORMAL, st) - a * st
+end
+
+"Compute d*c1*μ(α) array"
+function compute_dc1μ(d::Array, c1::Array, α::Array)
+	return d .* c1 .* μ.(α)
+end
+
 
 ### Estimation Functions ###
 
 "Compute α for a given MSA."
-function compute_alpha(mar_init::Array, um_init::Array, uf_init::Array)
+function compute_alpha(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
+					   mar_init::Array, um_init::Array, uf_init::Array)
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 	u_m = um_init[2:end,:,:]
@@ -138,88 +96,73 @@ function compute_alpha(mar_init::Array, um_init::Array, uf_init::Array)
 end
 
 "Compute surplus s by inverting α."
-function invert_alpha(α::Array)
+function invert_alpha(c1::Array, α::Array)
 	return -c1 .* Φ_inv.(1 .- α) # then use shifted c
 end
 
-"μ function, using inverse Mills ratio: E[z|z>q] = σ ϕ(q/σ) / (1 - Φ(q/σ))."
-function μ(a::Real)
-	st = Φ_inv(1-a) # pre-compute -s/σ = Φ^{-1}(1-a)
-	return pdf(STDNORMAL, st) - a * st
+"Compute value functions."
+function value_function(λ::Real, dc1μ::Array, um_init::Array, uf_init::Array)
+	# trim off age 25
+	u_m = um_init[2:end,:,:]
+	u_f = uf_init[2:end,:,:]
+
+	# use average value functions v = (r + ρ + ψ_m + ψ_f)V 
+	# initialize v: augmented with v^{T+1}=0 for convenience
+	v_m = zeros(um_init)
+	v_f = zeros(uf_init)
+
+	# female value function
+	for y in CartesianRange(size(u_f)) # use trimmed size
+		k = y.I[1] # age
+		yy = y.I[2:end] # traits
+		# NOTE: CartesianIndex y doesn't need to be splatted
+		v_f[k,yy...] = ρ * v_f[k+1,yy...] + β * λ * sum(dc1μ[:,:,:,y] .* u_m)
+	end
+	# male value function
+	for x in CartesianRange(size(u_m)) # use trimmed size
+		k = x.I[1] # age
+		xx = x.I[2:end] # traits
+		# NOTE: CartesianIndex x doesn't need to be splatted
+		v_m[k,xx...] = ρ * v_m[k+1,xx...] + β * λ * sum(dc1μ[x,:,:,:] .* u_f)
+	end
+
+	return v_m[1:end-1,:,:], v_f[1:end-1,:,:] # trim off age T+1
 end
 
+"Compute production function."
+function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ::Array,
+                            s::Array, v_m::Array, v_f::Array)
+	f = similar(s) # instantiate production array
 
-### Perform Estimation ###
+	# initialize v1: augmented with v^{T+1}=0 for convenience
+	v1_m = zeros(collect(size(v_m))+[1,0,0]...)
+	v1_f = zeros(collect(size(v_f))+[1,0,0]...)
 
-# load up smoothed masses from csv
-dt_men_sng = readtable("data/men-single.csv")
-dt_wom_sng = readtable("data/wom-single.csv")
-dt_men_tot = readtable("data/men-total.csv")
-dt_wom_tot = readtable("data/wom-total.csv")
-dt_marriages = readtable("data/marriages.csv")
+	# v1 == v otherwise
+	v1_m[1:end-1,:,:] = v_m
+	v1_f[1:end-1,:,:] = v_f
 
-# save arrays of each type in separate dicts, to be stored
-men_sng = Dict{AbstractString, Array}()
-wom_sng = Dict{AbstractString, Array}()
-men_tot = Dict{AbstractString, Array}()
-wom_tot = Dict{AbstractString, Array}()
-marriages = Dict{AbstractString, Array}()
-alpha = Dict{AbstractString, Array}()
-surplus = Dict{AbstractString, Array}()
-production = Dict{AbstractString, Array}()
+	# interior: all but (T,T)
+	for xy in CartesianRange(size(f)) # loop over interior
+		# unpack indices: [xy] == [a,x...,b,y...]
+		a = xy.I[1]
+		x = xy.I[2:3]
+		b = xy.I[4]
+		y = xy.I[5:6]
 
-for msa in top_msa
+		# truncate indices at T to handle boundary (except for T,T case)
+		f[xy] = (s[xy] + v_m[a,x...] + v_f[b,y...] - δ * dc1μ[xy]
+				 - ρ * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # drop term for (T,T) case
+				 - ρ * v1_m[a+1,x...] / (r + ρ + ψ_m[min(a+1,end),x...])
+				 - ρ * v1_f[b+1,y...] / (r + ρ + ψ_f[min(b+1,end),y...])) # allow augmented v to attain T+1
+	end
 
-	# annual population arrays (NOTE: includes age 25)
-	men_sng["$msa"] = indiv_array(@from i in dt_men_sng begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
-                                  @collect DataTable
-                                  end) / n_years
+	# patch (T,T) terminal case: no ρ (aging stops)
+	for xy in CartesianRange(size(f[end,:,:,end,:,:])) # dims are (2,2,2,2)
+		x = xy.I[1:2]
+		y = xy.I[3:4]
+		f[end,x...,end,y...] = s[end,x...,end,y...] + v_m[end,x...] + v_f[end,y...] - δ * dc1μ[end,x...,end,y...]
+	end
 
-	wom_sng["$msa"] = indiv_array(@from i in dt_wom_sng begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                  @collect DataTable
-                                  end) / n_years
-
-	men_tot["$msa"] = indiv_array(@from i in dt_men_tot begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
-                                  @collect DataTable
-                                  end) / n_years
-
-	wom_tot["$msa"] = indiv_array(@from i in dt_wom_tot begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                  @collect DataTable
-                                  end) / n_years
-
-	marriages["$msa"] = marr_array(@from i in dt_marriages begin
-                                   @where i.MSA == msa
-                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                   @collect DataTable
-                                   end) / n_years
-
-    # match probability (α)
-	alpha["$msa"] = compute_alpha(marriages["$msa"], men_sng["$msa"], wom_sng["$msa"])
-
-    # marital surplus (S)
-	surplus["$msa"] = invert_alpha(alpha["$msa"])
-
-    # marital production (f)
-    #production["$msa"] = 
-
-end # for
-
-
-# store in JLD format
-jldopen("results/estimates.jld", "w") do file  # open file for saving julia data
-    write(file, "men_sng", men_sng)
-    write(file, "wom_sng", wom_sng)
-    write(file, "men_tot", men_tot)
-    write(file, "wom_tot", wom_tot)
-    write(file, "marriages", marriages)
-    write(file, "surplus", surplus)
-    write(file, "production", production)
-end # do
+	return f
+end
