@@ -18,10 +18,10 @@ db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-14.db')
 
 ### Categorization ###
 
-case_minority <- ' case when "RACESING" in (1,4) and "HISPAN" = 0 then 0 else 1 end '
-case_minority_sp <- ' case when "RACESING_SP" in (1,4) and "HISPAN_SP" = 0 then 0 else 1 end '
-case_college <- ' case when "EDUC" >= 10 then 1 else 0 end '
-case_college_sp <- ' case when "EDUC_SP" >= 10 then 1 else 0 end '
+case_minority <- ' case when "RACESING" in (1,4) and "HISPAN" = 0 then 1 else 2 end '
+case_minority_sp <- ' case when "RACESING_SP" in (1,4) and "HISPAN_SP" = 0 then 1 else 2 end '
+case_college <- ' case when "EDUC" >= 10 then 2 else 1 end '
+case_college_sp <- ' case when "EDUC_SP" >= 10 then 2 else 1 end '
 
 
 ### Queries ###

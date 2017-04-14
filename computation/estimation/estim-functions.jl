@@ -89,6 +89,7 @@ function compute_alpha(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
 	for xy in CartesianRange(size(m))
 		x = xy.I[1:3]
 		y = xy.I[4:6]
+		# initial age as marriage inflows
 		α[xy] = (m[xy] * (ρ + δ + ψ_m[x...] + ψ_f[y...] ) - ρ * mar_init[xy]) /
 		        (λ * u_m[x...] * u_f[y...] + δ * m[xy])
 	end
@@ -165,4 +166,47 @@ function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ:
 	end
 
 	return f
+end
+
+
+### SMM Estimation of Arrival Rates ###
+
+# estimation function: inputs are data moments and pop masses
+#	* batch call all msa
+#	* model moments function: given params and masses, compute alpha and generate model moments
+#	* criterion function: given model moments and data moments, compute weighted SSE
+#	* pipe into optimizer, return results
+#	* Standard Errors? curvature at optimum
+
+"Compute model moments for a given MSA."
+function model_moments(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
+					   mar_init::Array, um_init::Array, uf_init::Array)
+	α = compute_alpha(λ, δ, ψ_m, ψ_f, mar_init, um_init, uf_init)
+	
+	m = mar_init[2:end,:,:,2:end,:,:]
+	u_m = um_init[2:end,:,:]
+	u_f = uf_init[2:end,:,:]
+
+	MF_m = zeros(u_m)
+	DF_m = zeros(u_m)
+	MF_f = zeros(u_f)
+	DF_f = zeros(u_f)
+
+	for x in CartesianRange(size(MF_m)) # men
+		# MF(x) = λ*u_m(x)*∫α(x,y)*u_f(y)dy
+		MF_m[x] = λ * u_m[x] * sum(α[x,y] * u_f[y] for y in CartesianRange(size(u_f)))
+
+		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
+		DF_m[x] = δ * sum((1-α[x,y]) * m[x,y] for y in CartesianRange(size(u_f)))
+	end
+
+	for y in CartesianRange(size(MF_f)) # women
+		# MF(y) = λ*u_f(y)*∫α(x,y)*u_m(x)dx
+		MF_f[y] = λ * u_f[y] * sum(α[x,y] * u_m[x] for x in CartesianRange(size(u_m)))
+
+		# DF(y) = δ*∫(1-α(x,y))*m(x,y)dx
+		DF_f[y] = δ * sum((1-α[x,y]) * m[x,y] for x in CartesianRange(size(u_m)))
+	end
+
+	return MF_m, DF_m, MF_f, DF_f
 end

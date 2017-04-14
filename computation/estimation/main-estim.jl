@@ -3,6 +3,9 @@ using JLD
 # TODO:
 #	* SMM: estimate arrival rates --> need to load up data moments: MF(x),DF(x)
 
+# include `prepare_pops.jl`? Use this after computing new smoothed populations
+reload_smooth = false # set true to reload the smoothed population csv files
+
 ### PARAMS ### 
 
 # arrival rates from `results/rate-param.csv`
@@ -24,38 +27,52 @@ const n_ages = max_age - min_age # excluding 25
 const n_years = 7 # 2008-2014
 
 # NOTE: must match `top.msa` from `smooth-pop.r`
+# TODO: add more if they can be reasonably smoothed
 const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
 const n_msa = length(top_msa)
 
 
 ### DATA ###
 
-# uncomment to overwrite `populations.jld` (to reload the smoothed population csv files)
-#include("prepare-pops.jl")
+if reload_smooth
+	# load from csv into dicts (and also save as JLD)
+	include("prepare-pops.jl")
+else
+	# load saved data as dict
+	pp = load("results/populations.jld")
 
-# load saved data as dict
-popu = load("results/populations.jld")
+	# load and trim age 25 from psi
+	ψ_m = pp["men_psi"][2:end,:,:]
+	ψ_f = pp["wom_psi"][2:end,:,:]
 
-# load and trim age 25 from psi
-ψ_m = popu["men_psi"][2:end,:,:]
-ψ_f = popu["wom_psi"][2:end,:,:]
+	# load population stock dicts
+	men_sng = pp["men_sng"]
+	wom_sng = pp["wom_sng"]
+	men_tot = pp["men_tot"]
+	wom_tot = pp["wom_tot"]
+	marriages = pp["marriages"]
 
-# load population dicts
-men_sng = popu["men_sng"]
-wom_sng = popu["wom_sng"]
-men_tot = popu["men_tot"]
-wom_tot = popu["wom_tot"]
-marriages = popu["marriages"]
-
-# estimation functions
-include("estimate-values.jl")
+	# load marriage and divorce flow dicts
+	men_MF = pp["men_MF"]
+	men_DF = pp["men_DF"]
+	wom_MF = pp["wom_MF"]
+	wom_DF = pp["wom_DF"]
+end
 
 
 ### ESTIMATION ###
 
+# estimation functions
+include("estimate-values.jl")
+
 ### Arrival Rates ###
 
 #TODO: SMM routine for λ,δ
+# load up DF/MF and total.csv files (data moments and weights)
+# compute model moments
+# drop max_age
+# run optimizer for MD estimation
+
 
 ### Non-parametric objects ###
 
