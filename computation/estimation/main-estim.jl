@@ -1,20 +1,17 @@
-using JLD
+using JLD, NLopt
 
 # TODO:
-#	* SMM: estimate arrival rates --> need to load up data moments: MF(x),DF(x)
+#	* reload smoothed populations: need to re-smooth because I changed the indices!
+#	* investigate uniqueness of SMM minimum: may need to try several starting values
 
 # include `prepare_pops.jl`? Use this after computing new smoothed populations
 reload_smooth = false # set true to reload the smoothed population csv files
 
 ### PARAMS ### 
 
-# arrival rates from `results/rate-param.csv`
-#λ = 6.2e-9
-#δ = 0.0117
-
-# TEST: sensible arrival rates
-λ = 0.000003
-δ = 0.025
+# initial guess of arrival rates for SMM routine
+λ_0 = 0.000003
+δ_0 = 0.025
 
 const r = 0.04 # discount rate
 const ρ = 1.0 # aging rate
@@ -42,17 +39,17 @@ else
 	pp = load("results/populations.jld")
 
 	# load and trim age 25 from psi
-	ψ_m = pp["men_psi"][2:end,:,:]
+	ψ_m = pp["men_psi"][2:end,:,:] # ages 26-65
 	ψ_f = pp["wom_psi"][2:end,:,:]
 
-	# load population stock dicts
+	# load population stock dicts (ages 25-65 inclusive)
 	men_sng = pp["men_sng"]
 	wom_sng = pp["wom_sng"]
 	men_tot = pp["men_tot"]
 	wom_tot = pp["wom_tot"]
 	marriages = pp["marriages"]
 
-	# load marriage and divorce flow dicts
+	# load data	moments: marriage and divorce flow dicts (ages 25-65 inclusive)
 	men_MF = pp["men_MF"]
 	men_DF = pp["men_DF"]
 	wom_MF = pp["wom_MF"]
@@ -63,15 +60,50 @@ end
 ### ESTIMATION ###
 
 # estimation functions
-include("estimate-values.jl")
+include("estim-functions.jl")
 
-### Arrival Rates ###
+### Arrival Rates: SMM estimation ###
 
-#TODO: SMM routine for λ,δ
-# load up DF/MF and total.csv files (data moments and weights)
-# compute model moments
-# drop max_age
+"Objective function to minimize: distance between model and data moments."
+function loss(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
+	          mar_all::Dict, um_all::Dict, uf_all::Dict,
+	          dMF_m::Dict, dDF_m::Dict, dMF_f::Dict, dDF_f::Dict,
+	          wgt_men::Dict, wgt_wom::Dict)
+
+	sse = 0.0 # initialize
+	for msa in top_msa
+		# model_moments returns ages 26-65
+		MF_m, DF_m, MF_f, DF_f = model_moments(λ, δ, ψ_m, ψ_f, mar_all["$msa"],
+		                                       um_all["$msa"], uf_all["$msa"])
+
+		# feed trimmed (age 26-64) moments and weights to loss function
+		sse += loss_msa(MF_m[1:end-1,:,:], DF_m[1:end-1,:,:],
+		                MF_f[1:end-1,:,:], DF_f[1:end-1,:,:],
+	                    dMF_m["$msa"][2:end-1,:,:], dDF_m["$msa"][2:end-1,:,:],
+		                dMF_f["$msa"][2:end-1,:,:], dDF_f["$msa"][2:end-1,:,:],
+		                wgt_men["$msa"][2:end-1,:,:], wgt_wom["$msa"][2:end-1,:,:])
+	end
+	return sse
+end
+
+"Objective function to pass to NLopt: requires vectors for `x` and `grad`."
+function loss_opt(x::Vector, grad::Vector)
+	return loss(x[1], x[2], ψ_m, ψ_f, marriages, men_sng, wom_sng,
+	            men_MF, men_DF, wom_MF, wom_DF,
+	            men_tot, wom_tot)
+end
+
 # run optimizer for MD estimation
+
+opt = Opt(:LN_NELDERMEAD, 2) # 2 parameters
+lower_bounds!(opt, [0,0]) # enforce non-negativity
+xtol_rel!(opt, 1e-10) # tolerance
+min_objective!(opt, loss_opt) # specify objective function
+min_f, min_x, ret = optimize(opt, [λ_0, δ_0]) # run!
+
+# estimates
+λ = min_x[1]
+δ = min_x[2]
 
 
 ### Non-parametric objects ###

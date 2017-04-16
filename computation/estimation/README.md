@@ -1,12 +1,15 @@
 # Estimation
 
+## Prepare ACS data
+
 Use `csv2sqlite.py` to save the raw csv.gz data file into an sqlite database.
 Then use SQL queries to get aggregated values to avoid loading the entire dataset into memory.
 Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean the data.
 
-## Estimation of rate parameters
+## Estimation of rate parameters by OLS
 
-* Using `R` and `data.table`
+* `estimate-rates-full.R` and `estimate-rates.R`
+	* very poor accuracy due to noisy inference on divorce flows
 * Need marriage and divorce rates for each couple-type (globally)
 	* Marriage rate (directly observable): SQL queries for flows and stocks to compute rates
 	* Divorce rate (infer from non-divorce rate and death rate)
@@ -14,13 +17,25 @@ Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean th
 
 ## Estimation of model objects
 
-* Using `R` and `data.table`: query aggregated population counts in each desired metro
+* `smooth-pops.R`: query aggregated population counts in each desired metro
 	* Smooth raw population counts: non-parametric regression (local-linear)
 	* Save smoothed data to csv for loading into `julia`
-* Using `julia`: convert DataFrames to multidimensional arrays (per metro)
-	* populations: total men, total women, single men, single women, couples
+* `mort-rates.R`: interpolates and saves death rates
+* `prepare-pops.jl`: convert DataFrames to multidimensional arrays (per metro)
+	* loads in populations and death rates
+* `main-estim.jl`: calls `estim-functions.jl` to
 	* compute estimates: alpha, surplus, production function
 	* average the production function estimates to get a global result
+
+## Estimation of rate parameters by SMM
+
+* moments: marriage and divorce flows by individual types (not couple pairs)
+* `smooth-flows.R`: queries and smooths data moments
+	* `prepare-pops.jl`: loads up data moments to arrays per MSA
+* `estim-functions.jl`: provides a function to compute the model moments given alpha
+* `main-estim.jl`: performs the MD estimation
+	* loads data moments, computes model moments
+	* runs an optimizer to minimize weighted (by population size) sum of squared differences
 
 ## 10 largest metro areas
 

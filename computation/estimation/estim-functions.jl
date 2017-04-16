@@ -194,19 +194,34 @@ function model_moments(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
 
 	for x in CartesianRange(size(MF_m)) # men
 		# MF(x) = λ*u_m(x)*∫α(x,y)*u_f(y)dy
-		MF_m[x] = λ * u_m[x] * sum(α[x,y] * u_f[y] for y in CartesianRange(size(u_f)))
+		MF_m[x] = λ * u_m[x] * sum([α[x,y] * u_f[y] for y in CartesianRange(size(u_f))])
 
 		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
-		DF_m[x] = δ * sum((1-α[x,y]) * m[x,y] for y in CartesianRange(size(u_f)))
+		DF_m[x] = δ * sum([(1-α[x,y]) * m[x,y] for y in CartesianRange(size(u_f))])
 	end
 
 	for y in CartesianRange(size(MF_f)) # women
 		# MF(y) = λ*u_f(y)*∫α(x,y)*u_m(x)dx
-		MF_f[y] = λ * u_f[y] * sum(α[x,y] * u_m[x] for x in CartesianRange(size(u_m)))
+		MF_f[y] = λ * u_f[y] * sum([α[x,y] * u_m[x] for x in CartesianRange(size(u_m))])
 
 		# DF(y) = δ*∫(1-α(x,y))*m(x,y)dx
-		DF_f[y] = δ * sum((1-α[x,y]) * m[x,y] for x in CartesianRange(size(u_m)))
+		DF_f[y] = δ * sum([(1-α[x,y]) * m[x,y] for x in CartesianRange(size(u_m))])
 	end
 
+	# NOTE: max_age will be dropped in the estimation because of truncation
 	return MF_m, DF_m, MF_f, DF_f
+end
+
+"Minimum distance loss function per MSA."
+function loss_msa(MF_m::Array, DF_m::Array, MF_f::Array, DF_f::Array,
+				  dMF_m::Array, dDF_m::Array, dMF_f::Array, dDF_f::Array,
+				  wgt_men::Array, wgt_wom::Array)
+	# assumes input arrays are from ages 26-64: already dropped min and max
+	# weighted sum of squared errors
+	wsse = sum(wgt_men .* (MF_m .- dMF_m).^2) +
+	       sum(wgt_men .* (DF_m .- dDF_m).^2) +
+	       sum(wgt_wom .* (DF_f .- dDF_f).^2) +
+	       sum(wgt_wom .* (DF_f .- dDF_f).^2)
+
+	return wsse
 end
