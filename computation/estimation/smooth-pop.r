@@ -9,6 +9,13 @@ library(DBI) # RSQLite database functions
 library(data.table)
 library(np) # non-parametric regression
 
+
+### Usage Options ###
+
+# choose what bandwidth to use for ages in marriages
+manual.bw <- TRUE # set to FALSE to use bw=cv.aic
+if (manual.bw) age.bw <- 3
+
 # connect to sqlite database
 # table name: acs
 db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-14.db')
@@ -21,9 +28,9 @@ case_minority_sp <- ' case when "RACESING_SP" in (1,4) and "HISPAN_SP" = 0 then 
 case_college <- ' case when "EDUC" >= 10 then 2 else 1 end '
 case_college_sp <- ' case when "EDUC_SP" >= 10 then 2 else 1 end '
 
-# top 10 largest MSAs
-top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
-top_msa <- ' MSA in (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460) '
+# top 20 largest MSAs
+top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
+top_msa <- ' MSA in (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580) '
 
 # terminal age
 max.age <- 65
@@ -103,6 +110,11 @@ marriages[is.na(MARRIAGES), MARRIAGES := 0]
 
 ### Smoothing ###
 
+# npregbw cv methods give following bandwidths on age per msa
+#	* wom.sng: 2.2
+#	* marriages (split sample): 0.5 for each age
+#	* marriages (product kernel): takes >24h for 1/5 starts... aborted
+
 # convert categorical variables to factors for npreg
 for (col in c('COLLEGE_M', 'MINORITY_M')) set(men.tot, j = col, value = factor(men.tot[[col]]))
 for (col in c('COLLEGE_M', 'MINORITY_M')) set(men.sng, j = col, value = factor(men.sng[[col]]))
@@ -110,33 +122,29 @@ for (col in c('COLLEGE_F', 'MINORITY_F')) set(wom.tot, j = col, value = factor(w
 for (col in c('COLLEGE_F', 'MINORITY_F')) set(wom.sng, j = col, value = factor(wom.sng[[col]]))
 for (col in c('COLLEGE_M', 'MINORITY_M', 'COLLEGE_F', 'MINORITY_F')) set(marriages, j = col, value = factor(marriages[[col]]))
 
-# batch smoothing by MSA: add MASS column to each data table
+# batch smoothing (product kernel) by MSA: add MASS column to each data table
 men.sng[, MASS := predict(npreg(bws=npregbw(formula = SNG_M ~ AGE_M + COLLEGE_M + MINORITY_M,
 											regtype="ll",
 											bwmethod="cv.aic",
-											data=.SD)),
-						  newdata=.SD),
+											data=.SD))),
         by = MSA]
 
 men.tot[, MASS := predict(npreg(bws=npregbw(formula = MEN ~ AGE_M + COLLEGE_M + MINORITY_M,
 											regtype="ll",
 											bwmethod="cv.aic",
-											data=.SD)),
-						  newdata=.SD),
+											data=.SD))),
         by = MSA]
 
 wom.sng[, MASS := predict(npreg(bws=npregbw(formula = SNG_F ~ AGE_F + COLLEGE_F + MINORITY_F,
 											regtype="ll",
 											bwmethod="cv.aic",
-											data=.SD)),
-						  newdata=.SD),
+											data=.SD))),
         by = MSA]
 
 wom.tot[, MASS := predict(npreg(bws=npregbw(formula = WOM ~ AGE_F + COLLEGE_F + MINORITY_F,
 											regtype="ll",
 											bwmethod="cv.aic",
-											data=.SD)),
-						  newdata=.SD),
+											data=.SD))),
         by = MSA]
 
 ## combine groups with age >= max.age (truncation at T)
@@ -175,15 +183,21 @@ wom.tot <- merge(wom.tot[AGE_F < max.age], trm.wom.tot,
 #	* try: use a shell script to launch 10 different R instances with one MSA each
 
 print("Starting non-parametric regression on couple masses.")
-print("This will take a while...")
 
-marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + AGE_F,
-													regtype="ll",
-													bwmethod="cv.aic",
-													data=.SD)),
-								  newdata=.SD),
-          by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
+if (manual.bw) {
+	marriages[, MASS := predict(npreg(bws=c(age.bw, age.bw),
+									  txdat=.(AGE_M, AGE_F), tydat=MARRIAGES,
+									  regtype="ll")),
+				by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
+} else {
+	print("This will take a while...")
 
+	marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + AGE_F,
+												  regtype="ll",
+												  bwmethod="cv.aic",
+												  data=.SD))),
+				by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
+}
 # full product kernel on all 6 variables
 #marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + COLLEGE_M + MINORITY_M + AGE_F + COLLEGE_F + MINORITY_F,
 #											  regtype="ll",

@@ -1,17 +1,16 @@
 using JLD, NLopt
 
-# TODO:
-#	* reload smoothed populations: need to re-smooth because I changed the indices!
-#	* investigate uniqueness of SMM minimum: may need to try several starting values
+### USAGE OPTIONS ###
 
-# include `prepare_pops.jl`? Use this after computing new smoothed populations
-reload_smooth = false # set true to reload the smoothed population csv files
+reload_smooth = false # set true to reload the smoothed population csv files, otherwise use saved JLD
+estimate_rates = false # set true to run SMM estimation, otherwise just use λ_0, δ_0 below
+
 
 ### PARAMS ### 
 
 # initial guess of arrival rates for SMM routine
-λ_0 = 0.000003
-δ_0 = 0.025
+λ_0 = 2.023848578e-7
+δ_0 = 0.0266481127
 
 const r = 0.04 # discount rate
 const ρ = 1.0 # aging rate
@@ -23,9 +22,8 @@ const min_age = 25 # initial age (excluded)
 const n_ages = max_age - min_age # excluding 25
 const n_years = 7 # 2008-2014
 
-# NOTE: must match `top.msa` from `smooth-pop.r`
-# TODO: add more if they can be reasonably smoothed
-const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460)
+# NOTE: must match `top.msa` from `smooth-pop.r` and `smooth-flows.r`
+const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
 const n_msa = length(top_msa)
 
 
@@ -34,7 +32,7 @@ const n_msa = length(top_msa)
 if reload_smooth
 	# load from csv into dicts (and also save as JLD)
 	include("prepare-pops.jl")
-else
+else # load from existing JLD file
 	# load saved data as dict
 	pp = load("results/populations.jld")
 
@@ -93,17 +91,27 @@ function loss_opt(x::Vector, grad::Vector)
 	            men_tot, wom_tot)
 end
 
-# run optimizer for MD estimation
 
-opt = Opt(:LN_NELDERMEAD, 2) # 2 parameters
-lower_bounds!(opt, [0,0]) # enforce non-negativity
-xtol_rel!(opt, 1e-10) # tolerance
-min_objective!(opt, loss_opt) # specify objective function
-min_f, min_x, ret = optimize(opt, [λ_0, δ_0]) # run!
+if estimate_rates # run optimizer for MD estimation
+	println("Starting optimizer for SMM estimation...")
 
-# estimates
-λ = min_x[1]
-δ = min_x[2]
+	opt = Opt(:LN_NELDERMEAD, 2) # 2 parameters
+	lower_bounds!(opt, [0,0]) # enforce non-negativity
+	xtol_rel!(opt, 1e-10) # tolerance
+	min_objective!(opt, loss_opt) # specify objective function
+	min_f, min_x, ret = optimize(opt, [λ_0, δ_0]) # run!
+
+	# estimates
+	λ = min_x[1]
+	δ = min_x[2]
+
+	println("Done! Estimates:")
+	println("λ: $λ")
+	println("δ: $δ")
+else # just use the initial guess
+	λ = λ_0
+	δ = δ_0
+end
 
 
 ### Non-parametric objects ###
@@ -133,7 +141,7 @@ for msa in top_msa
 	dc1μ = compute_dc1μ(d, c1, alpha["$msa"])
 
 	# average value functions
-	men_val["$msa"], wom_val["$msa"] = value_function(λ, dc1μ, men_sng["$msa"], wom_sng["$msa"])
+	men_val["$msa"], wom_val["$msa"] = compute_value_functions(λ, dc1μ, men_sng["$msa"], wom_sng["$msa"])
 
     # marital production (f)
 	production["$msa"] = compute_production(δ, ψ_m, ψ_f, d, dc1μ, surplus["$msa"],
@@ -148,6 +156,8 @@ avg_production = avg_production / n_msa
 
 # store in JLD format
 jldopen("results/estimates.jld", "w") do file  # open file for saving julia data
+    write(file, "lambda", λ)
+    write(file, "delta", δ)
     write(file, "alpha", alpha)
     write(file, "surplus", surplus)
     write(file, "men_val", men_val)

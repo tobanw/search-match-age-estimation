@@ -8,11 +8,12 @@ max.age <- 65
 mort.dt <- fread('data/mort-full_08-15.csv')
 
 # full grid to merge and interpolate mortality rates
-indiv.grid <- CJ(AGE = 25:79, COLLEGE = 0:1, MINORITY = 0:1)
+indiv.grid <- CJ(AGE = 25:79, COLLEGE = 1:2, MINORITY = 1:2)
 
 ### Annual Death Rates ###
 
 # prep mortality table for merging
+mort.dt[, MINORITY := MINORITY + 1] # convert from 0:1 to 1:2 
 mort.dt[, DTHRT := DR100 / 100000] # convert individual probabilities
 mort.dt[, AGE := AGE_L + 5] # midpoints for interpolation: 31,41,51,61,71
 mort.dt[AGE_H==24, AGE := 25] # boundaries for interpolation

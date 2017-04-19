@@ -102,7 +102,7 @@ function invert_alpha(c1::Array, α::Array)
 end
 
 "Compute value functions."
-function value_function(λ::Real, dc1μ::Array, um_init::Array, uf_init::Array)
+function compute_value_functions(λ::Real, dc1μ::Array, um_init::Array, uf_init::Array)
 	# trim off age 25
 	u_m = um_init[2:end,:,:]
 	u_f = uf_init[2:end,:,:]
