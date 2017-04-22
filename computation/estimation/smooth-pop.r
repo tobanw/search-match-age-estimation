@@ -12,9 +12,11 @@ library(np) # non-parametric regression
 
 ### Usage Options ###
 
-# choose what bandwidth to use for ages in marriages
-manual.bw <- TRUE # set to FALSE to use bw=cv.aic
-if (manual.bw) age.bw <- 3
+# choose what bandwidth to use for ages in marriages and for individuals
+marr.bw <- TRUE # set to FALSE to use bw=cv.aic
+indiv.bw <- TRUE # set to FALSE to use bw=cv.aic
+
+age.bw <- 3 # bw to use for manual age smoothing
 
 # connect to sqlite database
 # table name: acs
@@ -122,30 +124,38 @@ for (col in c('COLLEGE_F', 'MINORITY_F')) set(wom.tot, j = col, value = factor(w
 for (col in c('COLLEGE_F', 'MINORITY_F')) set(wom.sng, j = col, value = factor(wom.sng[[col]]))
 for (col in c('COLLEGE_M', 'MINORITY_M', 'COLLEGE_F', 'MINORITY_F')) set(marriages, j = col, value = factor(marriages[[col]]))
 
-# batch smoothing (product kernel) by MSA: add MASS column to each data table
-men.sng[, MASS := predict(npreg(bws=npregbw(formula = SNG_M ~ AGE_M + COLLEGE_M + MINORITY_M,
-											regtype="ll",
-											bwmethod="cv.aic",
-											data=.SD))),
-        by = MSA]
+if (indiv.bw) {
+	# manual smoothing with sample splitting
+	men.sng[, MASS := predict(npreg(bws=age.bw, txdat=AGE_M, tydat=SNG_M, regtype="ll")), by = .(MSA, COLLEGE_M, MINORITY_M)]
+	men.tot[, MASS := predict(npreg(bws=age.bw, txdat=AGE_M, tydat=MEN, regtype="ll")), by = .(MSA, COLLEGE_M, MINORITY_M)]
+	wom.sng[, MASS := predict(npreg(bws=age.bw, txdat=AGE_F, tydat=SNG_F, regtype="ll")), by = .(MSA, COLLEGE_F, MINORITY_F)]
+	wom.tot[, MASS := predict(npreg(bws=age.bw, txdat=AGE_F, tydat=WOM, regtype="ll")), by = .(MSA, COLLEGE_F, MINORITY_F)]
+} else {
+	# cross-validated bandwidth (product kernel)
+	men.sng[, MASS := predict(npreg(bws=npregbw(formula = SNG_M ~ AGE_M + COLLEGE_M + MINORITY_M,
+												regtype="ll",
+												bwmethod="cv.aic",
+												data=.SD))),
+             by = MSA]
 
-men.tot[, MASS := predict(npreg(bws=npregbw(formula = MEN ~ AGE_M + COLLEGE_M + MINORITY_M,
-											regtype="ll",
-											bwmethod="cv.aic",
-											data=.SD))),
-        by = MSA]
+	men.tot[, MASS := predict(npreg(bws=npregbw(formula = MEN ~ AGE_M + COLLEGE_M + MINORITY_M,
+												regtype="ll",
+												bwmethod="cv.aic",
+												data=.SD))),
+             by = MSA]
 
-wom.sng[, MASS := predict(npreg(bws=npregbw(formula = SNG_F ~ AGE_F + COLLEGE_F + MINORITY_F,
-											regtype="ll",
-											bwmethod="cv.aic",
-											data=.SD))),
-        by = MSA]
+	wom.sng[, MASS := predict(npreg(bws=npregbw(formula = SNG_F ~ AGE_F + COLLEGE_F + MINORITY_F,
+												regtype="ll",
+												bwmethod="cv.aic",
+												data=.SD))),
+             by = MSA]
 
-wom.tot[, MASS := predict(npreg(bws=npregbw(formula = WOM ~ AGE_F + COLLEGE_F + MINORITY_F,
-											regtype="ll",
-											bwmethod="cv.aic",
-											data=.SD))),
-        by = MSA]
+	wom.tot[, MASS := predict(npreg(bws=npregbw(formula = WOM ~ AGE_F + COLLEGE_F + MINORITY_F,
+												regtype="ll",
+												bwmethod="cv.aic",
+												data=.SD))),
+             by = MSA]
+}
 
 ## combine groups with age >= max.age (truncation at T)
 
@@ -184,12 +194,14 @@ wom.tot <- merge(wom.tot[AGE_F < max.age], trm.wom.tot,
 
 print("Starting non-parametric regression on couple masses.")
 
-if (manual.bw) {
+if (marr.bw) {
+	# manual smoothing with sample splitting
 	marriages[, MASS := predict(npreg(bws=c(age.bw, age.bw),
 									  txdat=.(AGE_M, AGE_F), tydat=MARRIAGES,
 									  regtype="ll")),
 				by = .(MSA, COLLEGE_M, MINORITY_M, COLLEGE_F, MINORITY_F)]
 } else {
+	# cross-validated bandwidth with sample splitting
 	print("This will take a while...")
 
 	marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + AGE_F,
