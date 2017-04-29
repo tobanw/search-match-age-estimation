@@ -3,7 +3,7 @@ using JLD, NLopt
 ### USAGE OPTIONS ###
 
 reload_smooth = false # set true to reload the smoothed population csv files, otherwise use saved JLD
-estimate_rates = false # set true to run SMM estimation, otherwise just use λ_0, δ_0 below
+estimate_rates = true # set true to run SMM estimation, otherwise just use λ_0, δ_0 below
 
 
 ### PARAMS ### 

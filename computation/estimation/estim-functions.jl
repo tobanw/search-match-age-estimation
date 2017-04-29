@@ -36,7 +36,7 @@ function compute_c(d::Array)
 		c[end,:,:,end-k,:,:] = 1 + ρ * d[end,:,:,end-k,:,:] .* c[end,:,:,end-k+1,:,:] # age T husbands
 		c[end-k,:,:,end,:,:] = 1 + ρ * d[end-k,:,:,end,:,:] .* c[end-k+1,:,:,end,:,:] # age T wives
 	end
-	# recursively fill layers from boundary inwards
+	# recursively fill layers from boundary inwards (via shrinking squares)
 	for k in 1:n_ages-1
 		c[1:end-k,:,:,1:end-k,:,:] = 1 + ρ * d[1:end-k,:,:,1:end-k,:,:] .* c[2:end-k+1,:,:,2:end-k+1,:,:]
 	end
@@ -98,10 +98,10 @@ end
 
 "Compute surplus s by inverting α."
 function invert_alpha(c1::Array, α::Array)
-	return -c1 .* Φ_inv.(1 .- α) # then use shifted c
+	return -c1 .* Φ_inv.(1 .- α) # use shifted c
 end
 
-"Compute value functions."
+"Compute average value functions."
 function compute_value_functions(λ::Real, dc1μ::Array, um_init::Array, uf_init::Array)
 	# trim off age 25
 	u_m = um_init[2:end,:,:]
@@ -112,19 +112,19 @@ function compute_value_functions(λ::Real, dc1μ::Array, um_init::Array, uf_init
 	v_m = zeros(um_init)
 	v_f = zeros(uf_init)
 
-	# female value function
-	for y in CartesianRange(size(u_f)) # use trimmed size
-		k = y.I[1] # age
-		yy = y.I[2:end] # traits
-		# NOTE: CartesianIndex y doesn't need to be splatted
-		v_f[k,yy...] = ρ * v_f[k+1,yy...] + β * λ * sum(dc1μ[:,:,:,y] .* u_m)
-	end
-	# male value function
-	for x in CartesianRange(size(u_m)) # use trimmed size
-		k = x.I[1] # age
-		xx = x.I[2:end] # traits
-		# NOTE: CartesianIndex x doesn't need to be splatted
-		v_m[k,xx...] = ρ * v_m[k+1,xx...] + β * λ * sum(dc1μ[x,:,:,:] .* u_f)
+	# solve backwards because of continuation value
+	for j in 0:n_ages-1
+		k = n_ages - j # work back from terminal age
+		# female value function
+		for y in CartesianRange(size(u_f[1,:,:])) # use trimmed size
+			# NOTE: CartesianIndex y doesn't need to be splatted
+			v_f[k,y] = ρ * v_f[k+1,y] + β * λ * sum(dc1μ[:,:,:,k,y] .* u_m)
+		end
+		# male value function
+		for x in CartesianRange(size(u_m[1,:,:])) # use trimmed size
+			# NOTE: CartesianIndex x doesn't need to be splatted
+			v_m[k,x] = ρ * v_m[k+1,x] + (1-β) * λ * sum(dc1μ[k,x,:,:,:] .* u_f)
+		end
 	end
 
 	return v_m[1:end-1,:,:], v_f[1:end-1,:,:] # trim off age T+1
@@ -135,14 +135,6 @@ function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ:
                             s::Array, v_m::Array, v_f::Array)
 	f = similar(s) # instantiate production array
 
-	# initialize v1: augmented with v^{T+1}=0 for convenience
-	v1_m = zeros(collect(size(v_m))+[1,0,0]...)
-	v1_f = zeros(collect(size(v_f))+[1,0,0]...)
-
-	# v1 == v otherwise
-	v1_m[1:end-1,:,:] = v_m
-	v1_f[1:end-1,:,:] = v_f
-
 	# interior: all but (T,T)
 	for xy in CartesianRange(size(f)) # loop over interior
 		# unpack indices: [xy] == [a,x...,b,y...]
@@ -151,25 +143,40 @@ function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ:
 		b = xy.I[4]
 		y = xy.I[5:6]
 
+		# continuations from aging
+		ρa = ρ
+		ρA = ρ
+		ρb = ρ
+		ρB = ρ
+		ρAB = ρ
+
+		if a == n_ages-1 # adjust discount factor on continuation value
+			ρa = 0
+		elseif a == n_ages # shut off continuation value
+			ρA = 0
+		end
+		if b == n_ages-1 # adjust discount factor on continuation value
+			ρb = 0
+		elseif b == n_ages # shut off continuation value
+			ρB = 0
+		end
+
+		if a == b == n_ages # shut off continuation surplus
+			ρAB = 0
+		end
+
 		# truncate indices at T to handle boundary (except for T,T case)
 		f[xy] = (s[xy] + v_m[a,x...] + v_f[b,y...] - δ * dc1μ[xy]
-				 - ρ * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # drop term for (T,T) case
-				 - ρ * v1_m[a+1,x...] / (r + ρ + ψ_m[min(a+1,end),x...])
-				 - ρ * v1_f[b+1,y...] / (r + ρ + ψ_f[min(b+1,end),y...])) # allow augmented v to attain T+1
-	end
-
-	# patch (T,T) terminal case: no ρ (aging stops)
-	for xy in CartesianRange(size(f[end,:,:,end,:,:])) # dims are (2,2,2,2)
-		x = xy.I[1:2]
-		y = xy.I[3:4]
-		f[end,x...,end,y...] = s[end,x...,end,y...] + v_m[end,x...] + v_f[end,y...] - δ * dc1μ[end,x...,end,y...]
+				 - ρAB * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # ρAB shuts off s^{T+1,T+1} case
+				 - ρA * v_m[min(a+1,end),x...] / (r + ρa + ψ_m[min(a+1,end),x...])
+				 - ρB * v_f[min(b+1,end),y...] / (r + ρb + ψ_f[min(b+1,end),y...])) # ρB shuts off V^{T+1}
 	end
 
 	return f
 end
 
 
-### SMM Estimation of Arrival Rates ###
+### GMM Estimation of Arrival Rates ###
 
 # estimation function: inputs are data moments and pop masses
 #	* batch call all msa

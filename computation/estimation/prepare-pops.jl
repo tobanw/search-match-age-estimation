@@ -1,12 +1,12 @@
 #Population masses: total, singles, couples.
 #Since these are purely from the data, they only need to be computed once and saved.
 
-using DataTables, Query
+using DataFrames, Query
 
 ### Array Conversion ###
 
 "Construct and fill array for individual values in one marriage	market."
-function indiv_array(val_dt::DataTable)
+function indiv_array(val_dt::DataFrame)
     # instantiate empty array: age, edu, race
 	valarray = Array(Float64, (n_ages+1,2,2)) # include age 25 for inflows
 
@@ -16,14 +16,14 @@ function indiv_array(val_dt::DataTable)
 		# map values to array indices
 		# age: map to 1:n_ages (edu, race already 1:2)
 		rowidx[:] = squeeze(Array(val_dt[i,1:end-1]), 1) + [1-min_age,0,0]
-		valarray[rowidx...] = get(val_dt[i,end]) # last dim is counts
+		valarray[rowidx...] = val_dt[i,end] # last dim is counts
     end
 
     return valarray
 end # indiv_array
  
 "Construct and fill array for couple masses in one marriage	market."
-function marr_array(counts::DataTable)
+function marr_array(counts::DataFrame)
 	# assumes counts has 3+3 type cols plus masses (no MSA or other cols)
     # instantiate empty array
 	massarray = Array(Float64, (n_ages+1,2,2,n_ages+1,2,2)) # include age 25 for inflows
@@ -34,7 +34,7 @@ function marr_array(counts::DataTable)
 		# map values to array indices
 		# age: map to 1:n_ages (edu, race already 1:2)
 		rowidx[:] = squeeze(Array(counts[i,1:end-1]), 1) + [1-min_age,0,0,1-min_age,0,0]
-		massarray[rowidx...] = get(counts[i,end]) # last dim is counts
+		massarray[rowidx...] = counts[i,end] # last dim is counts
     end
 
     return massarray
@@ -42,11 +42,11 @@ end # marr_array
 
 
 # load up smoothed masses from csv
-dt_men_sng = readtable("data/men-single.csv")
-dt_wom_sng = readtable("data/wom-single.csv")
-dt_men_tot = readtable("data/men-total.csv")
-dt_wom_tot = readtable("data/wom-total.csv")
-dt_marriages = readtable("data/marriages.csv")
+df_men_sng = readtable("data/men-single.csv")
+df_wom_sng = readtable("data/wom-single.csv")
+df_men_tot = readtable("data/men-total.csv")
+df_wom_tot = readtable("data/wom-total.csv")
+df_marriages = readtable("data/marriages.csv")
 
 # save arrays (by MSA) in separate dicts, to be stored
 men_sng = Dict{AbstractString, Array}()
@@ -56,10 +56,10 @@ wom_tot = Dict{AbstractString, Array}()
 marriages = Dict{AbstractString, Array}()
 
 # load up flows for rate parameter estimation
-dt_men_MF = readtable("data/men-MF.csv")
-dt_men_DF = readtable("data/men-DF.csv")
-dt_wom_MF = readtable("data/wom-MF.csv")
-dt_wom_DF = readtable("data/wom-DF.csv")
+df_men_MF = readtable("data/men-MF.csv")
+df_men_DF = readtable("data/men-DF.csv")
+df_wom_MF = readtable("data/wom-MF.csv")
+df_wom_DF = readtable("data/wom-DF.csv")
 
 men_MF = Dict{AbstractString, Array}()
 men_DF = Dict{AbstractString, Array}()
@@ -68,58 +68,58 @@ wom_DF = Dict{AbstractString, Array}()
 
 for msa in top_msa
 	# annual population arrays (NOTE: includes age 25)
-	men_sng["$msa"] = indiv_array(@from i in dt_men_sng begin
+	men_sng["$msa"] = indiv_array(@from i in df_men_sng begin
                                   @where i.MSA == msa
                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	wom_sng["$msa"] = indiv_array(@from i in dt_wom_sng begin
+	wom_sng["$msa"] = indiv_array(@from i in df_wom_sng begin
                                   @where i.MSA == msa
                                   @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	men_tot["$msa"] = indiv_array(@from i in dt_men_tot begin
+	men_tot["$msa"] = indiv_array(@from i in df_men_tot begin
                                   @where i.MSA == msa
                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	wom_tot["$msa"] = indiv_array(@from i in dt_wom_tot begin
+	wom_tot["$msa"] = indiv_array(@from i in df_wom_tot begin
                                   @where i.MSA == msa
                                   @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	marriages["$msa"] = marr_array(@from i in dt_marriages begin
+	marriages["$msa"] = marr_array(@from i in df_marriages begin
                                    @where i.MSA == msa
                                    @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                   @collect DataTable
+                                   @collect DataFrame
                                    end) / n_years
 
-	men_MF["$msa"] = indiv_array(@from i in dt_men_MF begin
+	men_MF["$msa"] = indiv_array(@from i in df_men_MF begin
                                   @where i.MSA == msa
                                   @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	men_DF["$msa"] = indiv_array(@from i in dt_men_DF begin
+	men_DF["$msa"] = indiv_array(@from i in df_men_DF begin
                                   @where i.MSA == msa
                                   @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	wom_MF["$msa"] = indiv_array(@from i in dt_wom_MF begin
+	wom_MF["$msa"] = indiv_array(@from i in df_wom_MF begin
                                   @where i.MSA == msa
                                   @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 
-	wom_DF["$msa"] = indiv_array(@from i in dt_wom_DF begin
+	wom_DF["$msa"] = indiv_array(@from i in df_wom_DF begin
                                   @where i.MSA == msa
                                   @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-                                  @collect DataTable
+                                  @collect DataFrame
                                   end) / n_years
 end
 
