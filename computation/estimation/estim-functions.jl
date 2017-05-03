@@ -78,7 +78,7 @@ end
 ### Estimation Functions ###
 
 "Compute α for a given MSA."
-function compute_alpha(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
+function compute_alpha(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
 					   mar_init::Array, um_init::Array, uf_init::Array)
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
@@ -91,7 +91,7 @@ function compute_alpha(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
 		y = xy.I[4:6]
 		# initial age as marriage inflows
 		α[xy] = (m[xy] * (ρ + δ + ψ_m[x...] + ψ_f[y...] ) - ρ * mar_init[xy]) /
-		        (λ * u_m[x...] * u_f[y...] + δ * m[xy])
+		        (λ[xy] * (u_m[x...] * u_f[y...]) + δ * m[xy])
 	end
 	return clamp.(α, 1e-6, 1 - 1e-6) # enforce 0 < α < 1
 end
@@ -102,7 +102,7 @@ function invert_alpha(c1::Array, α::Array)
 end
 
 "Compute average value functions."
-function compute_value_functions(λ::Real, dc1μ::Array, um_init::Array, uf_init::Array)
+function compute_value_functions(λ::Array, dc1μ::Array, um_init::Array, uf_init::Array)
 	# trim off age 25
 	u_m = um_init[2:end,:,:]
 	u_f = uf_init[2:end,:,:]
@@ -115,15 +115,14 @@ function compute_value_functions(λ::Real, dc1μ::Array, um_init::Array, uf_init
 	# solve backwards because of continuation value
 	for j in 0:n_ages-1
 		k = n_ages - j # work back from terminal age
+		# NOTE: CartesianIndex doesn't need to be splatted
 		# female value function
 		for y in CartesianRange(size(u_f[1,:,:])) # use trimmed size
-			# NOTE: CartesianIndex y doesn't need to be splatted
-			v_f[k,y] = ρ * v_f[k+1,y] + β * λ * sum(dc1μ[:,:,:,k,y] .* u_m)
+			v_f[k,y] = ρ * v_f[k+1,y] + β * sum(λ[:,:,:,k,y] .* dc1μ[:,:,:,k,y] .* u_m)
 		end
 		# male value function
 		for x in CartesianRange(size(u_m[1,:,:])) # use trimmed size
-			# NOTE: CartesianIndex x doesn't need to be splatted
-			v_m[k,x] = ρ * v_m[k+1,x] + (1-β) * λ * sum(dc1μ[k,x,:,:,:] .* u_f)
+			v_m[k,x] = ρ * v_m[k+1,x] + (1-β) * sum(λ[k,x,:,:,:] .* dc1μ[k,x,:,:,:] .* u_f)
 		end
 	end
 
@@ -185,8 +184,24 @@ end
 #	* pipe into optimizer, return results
 #	* Standard Errors? curvature at optimum
 
+"Reconstitute full λ array from vector of age-gap arrival rates."
+function inflate_λ(lv::Vector)
+	lam = Array(Float64, (n_ages,2,2,n_ages,2,2)) # NOTE: n_ages excludes age 25
+	for xy in CartesianRange(size(lam))
+		# unpack indices: [xy] == [a,x...,b,y...]
+		a = xy.I[1]
+		b = xy.I[4]
+
+		# simple age gap
+		gapidx = abs(a-b) + 1 # age gap aligned to lv index
+
+		lam[xy] = lv[gapidx]
+	end
+	return lam
+end
+
 "Compute model moments for a given MSA."
-function model_moments(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
+function model_moments(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
 					   mar_init::Array, um_init::Array, uf_init::Array)
 	α = compute_alpha(λ, δ, ψ_m, ψ_f, mar_init, um_init, uf_init)
 	
@@ -200,19 +215,19 @@ function model_moments(λ::Real, δ::Real, ψ_m::Array, ψ_f::Array,
 	DF_f = zeros(u_f)
 
 	for x in CartesianRange(size(MF_m)) # men
-		# MF(x) = λ*u_m(x)*∫α(x,y)*u_f(y)dy
-		MF_m[x] = λ * u_m[x] * sum([α[x,y] * u_f[y] for y in CartesianRange(size(u_f))])
+		# MF(x) = u_m(x)*∫λ(x,y)*u_f(y)*α(x,y)dy
+		MF_m[x] = u_m[x] * sum(λ[x,:,:,:] .* u_f .* α[x,:,:,:])
 
 		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
-		DF_m[x] = δ * sum([(1-α[x,y]) * m[x,y] for y in CartesianRange(size(u_f))])
+		DF_m[x] = δ * sum((1 .- α[x,:,:,:]) .* m[x,:,:,:])
 	end
 
 	for y in CartesianRange(size(MF_f)) # women
-		# MF(y) = λ*u_f(y)*∫α(x,y)*u_m(x)dx
-		MF_f[y] = λ * u_f[y] * sum([α[x,y] * u_m[x] for x in CartesianRange(size(u_m))])
+		# MF(y) = u_f(y)*∫λ(x,y)*u_m(x)*α(x,y)dx
+		MF_f[y] = u_f[y] * sum(λ[:,:,:,y] .* u_m .* α[:,:,:,y])
 
 		# DF(y) = δ*∫(1-α(x,y))*m(x,y)dx
-		DF_f[y] = δ * sum([(1-α[x,y]) * m[x,y] for x in CartesianRange(size(u_m))])
+		DF_f[y] = δ * sum((1 .- α[:,:,:,y]) .* m[:,:,:,y])
 	end
 
 	# NOTE: max_age will be dropped in the estimation because of truncation
@@ -225,10 +240,10 @@ function loss_msa(MF_m::Array, DF_m::Array, MF_f::Array, DF_f::Array,
 				  wgt_men::Array, wgt_wom::Array)
 	# assumes input arrays are from ages 26-64: already dropped min and max
 	# weighted sum of squared errors
-	wsse = sum(wgt_men .* (MF_m .- dMF_m).^2) +
-	       sum(wgt_men .* (DF_m .- dDF_m).^2) +
-	       sum(wgt_wom .* (DF_f .- dDF_f).^2) +
-	       sum(wgt_wom .* (DF_f .- dDF_f).^2)
+	wsse = ( sum(wgt_men .* (MF_m .- dMF_m).^2)
+	       + sum(wgt_men .* (DF_m .- dDF_m).^2)
+	       + sum(wgt_wom .* (MF_f .- dMF_f).^2)
+	       + sum(wgt_wom .* (DF_f .- dDF_f).^2) )
 
 	return wsse
 end

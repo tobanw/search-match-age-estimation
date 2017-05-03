@@ -16,7 +16,7 @@ library(np) # non-parametric regression
 marr.bw <- TRUE # set to FALSE to use bw=cv.aic
 indiv.bw <- TRUE # set to FALSE to use bw=cv.aic
 
-age.bw <- 3 # bw to use for manual age smoothing
+age.bw <- 6 # bw to use for manual age smoothing
 
 # connect to sqlite database
 # table name: acs

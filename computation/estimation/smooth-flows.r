@@ -19,8 +19,7 @@ db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-14.db')
 case_minority <- ' case when "RACESING" in (1,4) and "HISPAN" = 0 then 1 else 2 end '
 case_college <- ' case when "EDUC" >= 10 then 2 else 1 end '
 
-# top 10 largest MSAs
-# TODO: add more?
+# top 20 largest MSAs
 top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
 top_msa <- ' MSA in (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580) '
 
