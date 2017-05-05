@@ -9,6 +9,9 @@ library(DBI) # RSQLite database functions
 library(data.table)
 library(np) # non-parametric regression
 
+indiv.bw <- TRUE # set to FALSE to use bw=cv.aic
+age.bw <- 6 # bw to use for manual age smoothing
+
 # connect to sqlite database
 # table name: acs
 db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-14.db')
@@ -68,18 +71,25 @@ for (col in c('COLLEGE', 'MINORITY')) set(mar.flow, j = col, value = factor(mar.
 for (col in c('COLLEGE', 'MINORITY')) set(div.flow, j = col, value = factor(div.flow[[col]]))
 
 # batch smoothing by MSA and SEX: add FLOW column to each data table
-mar.flow[, FLOW := predict(npreg(bws=npregbw(formula = MF ~ AGE + COLLEGE + MINORITY,
-											 regtype="ll",
-											 bwmethod="cv.aic",
-											 data=.SD)),
-						   newdata=.SD),
-         by = .(MSA, SEX)]
-div.flow[, FLOW := predict(npreg(bws=npregbw(formula = DF ~ AGE + COLLEGE + MINORITY,
-											 regtype="ll",
-											 bwmethod="cv.aic",
-											 data=.SD)),
-						   newdata=.SD),
-         by = .(MSA, SEX)]
+if (indiv.bw) {
+	mar.flow[, FLOW := predict(npreg(bws=age.bw, txdat=AGE, tydat=MF, regtype="ll")),
+			   by = .(MSA, SEX, COLLEGE, MINORITY)]
+	div.flow[, FLOW := predict(npreg(bws=age.bw, txdat=AGE, tydat=DF, regtype="ll")),
+			   by = .(MSA, SEX, COLLEGE, MINORITY)]
+} else {
+	mar.flow[, FLOW := predict(npreg(bws=npregbw(formula = MF ~ AGE + COLLEGE + MINORITY,
+												 regtype="ll",
+												 bwmethod="cv.aic",
+												 data=.SD)),
+							   newdata=.SD),
+			   by = .(MSA, SEX)]
+	div.flow[, FLOW := predict(npreg(bws=npregbw(formula = DF ~ AGE + COLLEGE + MINORITY,
+												 regtype="ll",
+												 bwmethod="cv.aic",
+												 data=.SD)),
+							   newdata=.SD),
+			   by = .(MSA, SEX)]
+}
 
 
 ### Trim and Clean ###

@@ -98,6 +98,7 @@ for msa in top_msa
                                    @collect DataFrame
                                    end) / n_years
 
+	# annual flow arrays
 	men_MF["$msa"] = indiv_array(@from i in df_men_MF begin
                                   @where i.MSA == msa
                                   @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}

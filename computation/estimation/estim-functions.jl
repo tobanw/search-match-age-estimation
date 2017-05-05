@@ -78,8 +78,8 @@ end
 ### Estimation Functions ###
 
 "Compute α for a given MSA."
-function compute_alpha(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
-					   mar_init::Array, um_init::Array, uf_init::Array)
+function compute_raw_alpha(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
+	                       mar_init::Array, um_init::Array, uf_init::Array)
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 	u_m = um_init[2:end,:,:]
@@ -90,10 +90,19 @@ function compute_alpha(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
 		x = xy.I[1:3]
 		y = xy.I[4:6]
 		# initial age as marriage inflows
-		α[xy] = (m[xy] * (ρ + δ + ψ_m[x...] + ψ_f[y...] ) - ρ * mar_init[xy]) /
-		        (λ[xy] * (u_m[x...] * u_f[y...]) + δ * m[xy])
+		α[xy] = ((m[xy] * (ρ + δ + ψ_m[x...] + ψ_f[y...] ) - ρ * mar_init[xy])
+				 / (λ[xy] * (u_m[x...] * u_f[y...]) + δ * m[xy]))
 	end
-	return clamp.(α, 1e-6, 1 - 1e-6) # enforce 0 < α < 1
+	return α # raw array may not lie within [0,1]
+end
+
+"Compute α for a given MSA."
+function compute_alpha(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
+					   mar_init::Array, um_init::Array, uf_init::Array)
+
+	α = compute_raw_alpha(λ, δ, ψ_m, ψ_f, mar_init, um_init, uf_init)
+
+	return clamp.(α, 1e-8, 1 - 1e-8) # enforce 0 < α < 1
 end
 
 "Compute surplus s by inverting α."
@@ -177,12 +186,33 @@ end
 
 ### GMM Estimation of Arrival Rates ###
 
+using Interpolations
+
 # estimation function: inputs are data moments and pop masses
 #	* batch call all msa
 #	* model moments function: given params and masses, compute alpha and generate model moments
 #	* criterion function: given model moments and data moments, compute weighted SSE
 #	* pipe into optimizer, return results
 #	* Standard Errors? curvature at optimum
+
+"Compute age-specific arrival rate vector ξ from parameter vector ζ"
+function build_ξ(ζ::Vector, knots::Vector)
+	# exponential decay: ξ[k] = exp(-ζ[1] - ζ[2]*k - ζ[3]*k^2 - ...)
+	# harmonic decay: ξ[k] = 1/(ζ[1] + ζ[2]*k + ζ[3]*k^2 + ...)
+	# gaussian kernel: ξ[k] = ζ[1]*exp(-(k/ζ[2])^2)
+	# logistic kernel: ζ[1]/ζ[2] * exp(-x/ζ[2])/(1+exp(-x/ζ[2]))^2
+	""" parametric construction
+	ξ = zeros(n_ages)
+	for k in 0:n_ages-1
+		ξ[k+1] = ζ[1]/ζ[2] * exp(-(k/ζ[2]))/(1+exp(-k/ζ[2]))^2
+	end
+	return ξ
+	"""
+	# linear interpolation on knots
+	grid = (knots,) # age-nodes for interpolation
+	itp = interpolate(grid, ζ, Gridded(Linear()))
+	return itp[collect(0:n_ages-1)]
+end
 
 "Reconstitute full λ array from vector of age-gap arrival rates."
 function inflate_λ(lv::Vector)
@@ -200,36 +230,78 @@ function inflate_λ(lv::Vector)
 	return lam
 end
 
+#Functions for parallel computation of (for given MSA):
+#	* male marriage flows
+#	* female marriage flows
+#	* male divorce flows
+#	* female divorce flows
+
+#@everywhere 
+function compute_MF_m(λ::Array, um::Array, uf::Array, α::Array)
+	MF_m = zeros(um)
+	for x in CartesianRange(size(MF_m)) # men
+		# MF(x) = um(x)*∫λ(x,y)*uf(y)*α(x,y)dy
+		MF_m[x] = um[x] * sum(λ[x,:,:,:] .* uf .* α[x,:,:,:])
+	end
+	return MF_m
+end
+
+function compute_MF_f(λ::Array, um::Array, uf::Array, α::Array)
+	MF_f = zeros(uf)
+	for y in CartesianRange(size(MF_f)) # women
+		# MF(y) = uf(y)*∫λ(x,y)*um(x)*α(x,y)dx
+		MF_f[y] = uf[y] * sum(λ[:,:,:,y] .* um .* α[:,:,:,y])
+	end
+	return MF_f
+end
+
+function compute_DF_m(δ::Real, α::Array, m::Array)
+	DF_m = zeros(m[:,:,:,1,1,1])
+	for x in CartesianRange(size(DF_m)) # men
+		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
+		DF_m[x] = δ * sum((1 .- α[x,:,:,:]) .* m[x,:,:,:])
+	end
+	return DF_m
+end
+
+function compute_DF_f(δ::Real, α::Array, m::Array)
+	DF_f = zeros(m[1,1,1,:,:,:])
+	for y in CartesianRange(size(DF_f)) # men
+		# DF(y) = δ*∫(1-α(x,y))*m(x,y)dx
+		DF_f[y] = δ * sum((1 .- α[:,:,:,y]) .* m[:,:,:,y])
+	end
+	return DF_f
+end
+
 "Compute model moments for a given MSA."
 function model_moments(λ::Array, δ::Real, ψ_m::Array, ψ_f::Array,
 					   mar_init::Array, um_init::Array, uf_init::Array)
-	α = compute_alpha(λ, δ, ψ_m, ψ_f, mar_init, um_init, uf_init)
+	# use raw alpha to help optimizer avoid solutions with alpha = 1
+	α = compute_raw_alpha(λ, δ, ψ_m, ψ_f, mar_init, um_init, uf_init)
 	
 	m = mar_init[2:end,:,:,2:end,:,:]
 	u_m = um_init[2:end,:,:]
 	u_f = uf_init[2:end,:,:]
 
-	MF_m = zeros(u_m)
-	DF_m = zeros(u_m)
-	MF_f = zeros(u_f)
-	DF_f = zeros(u_f)
+	MF_m = compute_MF_m(λ, u_m, u_f, α)
+	MF_f = compute_MF_f(λ, u_m, u_f, α)
+	DF_m = compute_DF_m(δ, α, m)
+	DF_f = compute_DF_f(δ, α, m)
 
-	for x in CartesianRange(size(MF_m)) # men
-		# MF(x) = u_m(x)*∫λ(x,y)*u_f(y)*α(x,y)dy
-		MF_m[x] = u_m[x] * sum(λ[x,:,:,:] .* u_f .* α[x,:,:,:])
+	# spawn jobs on worker processes
+	#job_MF_m = @spawn compute_MF_m(λ, u_m, u_f, α)
+	#job_MF_f = @spawn compute_MF_f(λ, u_m, u_f, α)
+	#job_DF_m = @spawn compute_DF_m(δ, α, m)
+	#job_DF_f = @spawn compute_DF_f(δ, α, m)
 
-		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
-		DF_m[x] = δ * sum((1 .- α[x,:,:,:]) .* m[x,:,:,:])
-	end
+	#println("Jobs spawned!")
 
-	for y in CartesianRange(size(MF_f)) # women
-		# MF(y) = u_f(y)*∫λ(x,y)*u_m(x)*α(x,y)dx
-		MF_f[y] = u_f[y] * sum(λ[:,:,:,y] .* u_m .* α[:,:,:,y])
+	#MF_m = fetch(job_MF_m)
+	#MF_f = fetch(job_MF_f)	
+	#DF_m = fetch(job_DF_m)
+	#DF_f = fetch(job_DF_f)
 
-		# DF(y) = δ*∫(1-α(x,y))*m(x,y)dx
-		DF_f[y] = δ * sum((1 .- α[:,:,:,y]) .* m[:,:,:,y])
-	end
-
+	#println("Jobs fetched!")
 	# NOTE: max_age will be dropped in the estimation because of truncation
 	return MF_m, DF_m, MF_f, DF_f
 end
@@ -247,3 +319,46 @@ function loss_msa(MF_m::Array, DF_m::Array, MF_f::Array, DF_f::Array,
 
 	return wsse
 end
+
+"Objective function to minimize: distance between model and data moments."
+function loss(ζ::Vector, δ::Real, knots::Vector,
+	          ψ_m::Array, ψ_f::Array, mar_all::Dict{AbstractString,Array},
+	          um_all::Dict{AbstractString,Array}, uf_all::Dict{AbstractString,Array},
+	          dMF_m::Dict{AbstractString,Array}, dDF_m::Dict{AbstractString,Array},
+	          dMF_f::Dict{AbstractString,Array}, dDF_f::Dict{AbstractString,Array},
+	          wgt_men::Dict{AbstractString,Array}, wgt_wom::Dict{AbstractString,Array})
+
+	sse = 0.0 # initialize
+	for msa in top_msa
+
+		ξ = build_ξ(ζ, knots) # construct ξ
+
+		# reconstitute full λ array from age-gap ξ vector
+		λ_gap = ξ ./ sqrt(sum(um_all["$msa"]) * sum(uf_all["$msa"])) # U_m, U_f per marriage market
+		λ = inflate_λ(λ_gap)
+
+		# model_moments returns ages 26-65
+		MF_m, DF_m, MF_f, DF_f = model_moments(λ, δ, ψ_m, ψ_f, mar_all["$msa"],
+		                                       um_all["$msa"], uf_all["$msa"])
+
+		# feed trimmed (age 26-64) moments and weights to loss function
+		sse += loss_msa(MF_m[1:end-1,:,:], DF_m[1:end-1,:,:],
+		                MF_f[1:end-1,:,:], DF_f[1:end-1,:,:],
+	                    dMF_m["$msa"][2:end-1,:,:], dDF_m["$msa"][2:end-1,:,:],
+		                dMF_f["$msa"][2:end-1,:,:], dDF_f["$msa"][2:end-1,:,:],
+		                wgt_men["$msa"][2:end-1,:,:], wgt_wom["$msa"][2:end-1,:,:])
+	end
+
+	# Verbose progress indicator 
+	println(@sprintf("sse: %.8e, δ: %.3g, ζ: ", sse, δ), ζ)
+	return sse
+end
+
+"Objective function to pass to NLopt: requires vectors for `x` and `grad`."
+function loss_opt(x::Vector, grad::Vector)
+	return loss(x[1:end-1], x[end], znodes, ψ_m, ψ_f,
+				marriages, men_sng, wom_sng,
+	            men_MF, men_DF, wom_MF, wom_DF,
+	            men_tot, wom_tot)
+end
+

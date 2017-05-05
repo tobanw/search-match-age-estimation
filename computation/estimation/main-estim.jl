@@ -19,8 +19,21 @@ const n_ages = max_age - min_age # excluding 25
 const n_years = 7 # 2008-2014
 
 # initial guess of arrival rate parameters for GMM routine
-ξ_0 = 0.24 * ones(n_ages) .* exp(collect(0:n_ages-1).*(-0.05)) # vector of age-gap-specific arrival rates
-δ_0 = 0.03
+# parametric specification:
+# ξ^k =  exp(-dot(ζ, [1,k,k^2,...]))
+# results: total loss
+#	2 params: 7.771e12
+#	3 params: ?.???e12
+#ζ_0 = [0.364, 0.159, 0.048, 0.093]  # fit for linear interpolation on [0,4,12,39]
+#ζ_0 = [0.518, 0.368, 0.166, 0.021, 0.0052]  # fit for linear interpolation on [0,4,10,18,39]
+#ζ_0 = [0.524, 0.373, 0.166, 0.022, 0.00153, 0.1] # interpolate on [0,4,10,18,27,39]
+#ζ_0 = [0.527, 0.411, 0.266, 0.121, 0.0242, 0.0013, 0.1] # interpolate on [0,3,7,12,18,27,39]
+
+# TODO: extend to k+1 knots, estimate, repeat
+znodes = [0,3,7,12,18,27,39]
+ζ_0 = [0.527, 0.411, 0.266, 0.121, 0.0242, 0.0013, 0.1]
+
+δ_0 = 0.06 # arrival rate of love shocks
 
 # NOTE: must match `top.msa` from `smooth-pop.r` and `smooth-flows.r`
 const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
@@ -60,65 +73,34 @@ end
 # estimation functions
 include("estim-functions.jl")
 
+
 ### Arrival Rates: GMM estimation ###
-
-"Objective function to minimize: distance between model and data moments."
-function loss(ξ::Vector, δ::Real, ψ_m::Array, ψ_f::Array, mar_all::Dict{AbstractString,Array},
-	          um_all::Dict{AbstractString,Array}, uf_all::Dict{AbstractString,Array},
-	          dMF_m::Dict{AbstractString,Array}, dDF_m::Dict{AbstractString,Array},
-	          dMF_f::Dict{AbstractString,Array}, dDF_f::Dict{AbstractString,Array},
-	          wgt_men::Dict{AbstractString,Array}, wgt_wom::Dict{AbstractString,Array})
-
-	sse = 0.0 # initialize
-	for msa in top_msa
-		# reconstitute full λ array from age-gap ξ vector
-		λ_gap = ξ ./ sqrt(sum(um_all["$msa"]) * sum(uf_all["$msa"])) # U_m, U_f per marriage market
-		λ = inflate_λ(λ_gap)
-
-		# model_moments returns ages 26-65
-		MF_m, DF_m, MF_f, DF_f = model_moments(λ, δ, ψ_m, ψ_f, mar_all["$msa"],
-		                                       um_all["$msa"], uf_all["$msa"])
-
-		# feed trimmed (age 26-64) moments and weights to loss function
-		sse += loss_msa(MF_m[1:end-1,:,:], DF_m[1:end-1,:,:],
-		                MF_f[1:end-1,:,:], DF_f[1:end-1,:,:],
-	                    dMF_m["$msa"][2:end-1,:,:], dDF_m["$msa"][2:end-1,:,:],
-		                dMF_f["$msa"][2:end-1,:,:], dDF_f["$msa"][2:end-1,:,:],
-		                wgt_men["$msa"][2:end-1,:,:], wgt_wom["$msa"][2:end-1,:,:])
-	end
-
-	# Verbose progress indicator 
-	println(@sprintf("sse: %.10e, δ: %.3g, ξ[1:3]: ", sse, δ),
-			ξ[1:3], @sprintf(", max: %.3g", maximum(ξ[4:end])))
-	return sse
-end
-
-"Objective function to pass to NLopt: requires vectors for `x` and `grad`."
-function loss_opt(x::Vector, grad::Vector)
-	return loss(x[1:end-1], x[end], ψ_m, ψ_f, marriages, men_sng, wom_sng,
-	            men_MF, men_DF, wom_MF, wom_DF,
-	            men_tot, wom_tot)
-end
 
 
 if estimate_rates # run optimizer for MD estimation
-	println("Starting optimizer for GMM estimation...")
+	println("Starting optimization routine for GMM estimation...")
 
-	opt = Opt(:LN_SBPLX, n_ages+1) # number of parameters
-	lower_bounds!(opt, zeros(n_ages+1)) # enforce non-negativity
-	upper_bounds!(opt, ones(n_ages+1)) # prevent it from roaming
+	# compute moments in parallel: multiprocess
+	#addprocs(4) # add a worker process per moment (male/female marriage/divorce flows)
+	#println("  > Using $(nprocs()-1) worker processes")
+
+	opt = Opt(:LN_SBPLX, length(ζ_0)+1) # number of parameters
+	lower_bounds!(opt, zeros(length(ζ_0)+1)) # enforce non-negativity
+	#upper_bounds!(opt, ones(length(ζ_0)+1)) # prevent it from roaming
+	upper_bounds!(opt, [1.5, 1.3, 1.2, 0.4, 0.25, 0.2, 0.1, 0.2]) # prevent it from roaming
 	xtol_rel!(opt, 1e-3) # tolerance
 	min_objective!(opt, loss_opt) # specify objective function
-	min_f, min_x, ret = optimize(opt, [ξ_0..., δ_0]) # run!
+	min_f, min_x, ret = optimize(opt, [ζ_0..., δ_0]) # run!
 
 	# estimates
-	ξ = min_x[1:end-1]
+	ζ = min_x[1:end-1]
 	δ = min_x[end]
 
-	println("Done! Estimates:")
+	println("Done! Linear interpolation of ξ with raw α. Estimates:")
+	println("ζ: $ζ") 
 	println("δ: $δ")
 else # just use the initial guess
-	ξ = ξ_0
+	ζ = ζ_0
 	δ = δ_0
 end
 
@@ -134,6 +116,7 @@ avg_production = zeros(d) # initialize
 
 # save arrays (by MSA) in separate dicts, to be stored
 alpha = Dict{AbstractString, Array}()
+alpha_raw = Dict{AbstractString, Array}()
 surplus = Dict{AbstractString, Array}()
 men_val = Dict{AbstractString, Array}()
 wom_val = Dict{AbstractString, Array}()
@@ -141,10 +124,13 @@ production = Dict{AbstractString, Array}()
 
 for msa in top_msa
 	# U_m, U_f per marriage market
+	ξ = build_ξ(ζ, znodes) # construct ξ
 	λ = inflate_λ(ξ ./ sqrt(sum(men_sng["$msa"]) * sum(wom_sng["$msa"])))
 
     # match probability (α)
 	alpha["$msa"] = compute_alpha(λ, δ, ψ_m, ψ_f, marriages["$msa"], men_sng["$msa"], wom_sng["$msa"])
+	# TESTING
+	alpha_raw["$msa"] = compute_raw_alpha(λ, δ, ψ_m, ψ_f, marriages["$msa"], men_sng["$msa"], wom_sng["$msa"])
 
     # marital surplus (S)
 	surplus["$msa"] = invert_alpha(c1, alpha["$msa"])
@@ -167,10 +153,11 @@ end # for
 avg_production = avg_production / n_msa
 
 # store in JLD format
-jldopen("results/estimates.jld", "w") do file  # open file for saving julia data
-    write(file, "xi", ξ)
+jldopen("results/estimates-spline.jld", "w") do file  # open file for saving julia data
+    write(file, "zeta", ζ)
     write(file, "delta", δ)
     write(file, "alpha", alpha)
+    write(file, "alpha_raw", alpha_raw)
     write(file, "surplus", surplus)
     write(file, "men_val", men_val)
     write(file, "wom_val", wom_val)
