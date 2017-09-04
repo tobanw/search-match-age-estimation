@@ -8,10 +8,10 @@ using DataFrames, Query
 "Construct and fill array for individual values in one marriage	market."
 function indiv_array(val_dt::DataFrame)
     # instantiate empty array: age, edu, race
-	valarray = Array(Float64, (n_ages+1,2,2)) # include age 25 for inflows
+	valarray = Array{Float64}(n_ages+1,2,2) # include age 25 for inflows
 
     # fill counts
-	rowidx = Array(Int64, 3) # initialize empty vector for reuse
+	rowidx = Array{Int64}(3) # initialize empty vector for reuse
     for i in 1:size(val_dt,1) # loop over rows of table
 		# map values to array indices
 		# age: map to 1:n_ages (edu, race already 1:2)
@@ -26,10 +26,10 @@ end # indiv_array
 function marr_array(counts::DataFrame)
 	# assumes counts has 3+3 type cols plus masses (no MSA or other cols)
     # instantiate empty array
-	massarray = Array(Float64, (n_ages+1,2,2,n_ages+1,2,2)) # include age 25 for inflows
+	massarray = Array{Float64}(n_ages+1,2,2,n_ages+1,2,2) # include age 25 for inflows
 
     # fill counts
-	rowidx = Array(Int64, 6) # initialize empty vector for reuse
+	rowidx = Array{Int64}(6) # initialize empty vector for reuse
     for i in 1:size(counts,1) # loop over rows of table
 		# map values to array indices
 		# age: map to 1:n_ages (edu, race already 1:2)
@@ -42,7 +42,7 @@ end # marr_array
 
 "Convolution / outer product function for population measures and ψ."
 function convolution(op::Function, men::Array, wom::Array)
-	convy = Array(Float64, (size(men)...,size(wom)...)) # assumes 3+3 dims
+	convy = Array{Float64}(size(men)...,size(wom)...) # assumes 3+3 dims
 	for xy in CartesianRange(size(convy))
 		x = xy.I[1:3]
 		y = xy.I[4:6]
