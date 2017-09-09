@@ -1,10 +1,17 @@
 ### GMM Estimation of Arrival Rates ###
 
-# unscaled logistic pdf
-logistic(x::Real; m=2.0, s=1./8) = exp(-(x-m)*s) / (1+exp(-(x-m)*s))^2
+# Construct meeting rate array
 
-"Compute age-gap-specific arrival rate vector ξ from parameter vector ζ."
-function build_ξ(ζ::Vector)
+"Compute uniform arrival rates ξ from ζ[1]."
+function constant_ξ(ζ::Vector)
+	return ζ[1] * ones(n_ages,2,2,n_ages,2,2)
+end
+
+# unscaled logistic pdf
+logistic(x::Real; m=2.0, s=1/8) = exp(-(x-m)*s) / (1+exp(-(x-m)*s))^2
+
+"Compute bivariate logistic arrival rates ξ from parameter vector ζ."
+function logistic_ξ(ζ::Vector)
 	# vector: logistic in age-gap with free mean
 	xi = Array{Float64}(n_ages,2,2,n_ages,2,2) # NOTE: n_ages excludes age 25
 	for a in 1:n_ages, b in 1:n_ages
@@ -14,6 +21,22 @@ function build_ξ(ζ::Vector)
     return xi
 end
 
+"Compute interpolated arrival rates ξ from parameter vector ζ."
+function interp_ξ(ζ::Vector)
+	# linear interpolation on knots: age gap x avg age
+	# ζ1: fix global scale (1,1)
+	age_knots = ([1, 10, 25, 40],)
+	age_itp = Interpolations.interpolate(age_knots, [1, ζ[2:4]...], Interpolations.Gridded(Interpolations.Linear()))
+
+	gap_knots = ([-39, -15, -5, 5, 10, 20, 39],)
+	gap_itp = Interpolations.interpolate(gap_knots, [ζ[5:7]..., 1, ζ[8:10]...], Interpolations.Gridded(Interpolations.Linear()))
+
+	xi = Array{Float64}(n_ages,2,2,n_ages,2,2) # NOTE: n_ages excludes age 25
+	for a in 1:n_ages, b in 1:n_ages
+		xi[a,:,:,b,:,:] = ζ[1] * age_itp[(a+b)/2] * gap_itp[a-b] # varies in age gap AND combined age of couple
+	end
+    return xi
+end
 
 # Moment functions
 
@@ -21,11 +44,12 @@ function compute_MF(λ::Array, um_uf::Array, α::Array)
 	return λ .* um_uf .* α
 end
 
+# TODO: better to compute DF once, then integrate: sum(DF, 4:6)
 function compute_DF_m(δ::Real, α::Array, m::Array)
 	DF_m = zeros(m[:,:,:,1,1,1])
 	for x in CartesianRange(size(DF_m)) # men
 		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
-		DF_m[x] = δ * sum((1 .- α[x,:,:,:]) .* m[x,:,:,:])
+		DF_m[x] = δ * sum((1 - α[x,:,:,:]) .* m[x,:,:,:])
 	end
 	return DF_m
 end
@@ -34,7 +58,7 @@ function compute_DF_f(δ::Real, α::Array, m::Array)
 	DF_f = zeros(m[1,1,1,:,:,:])
 	for y in CartesianRange(size(DF_f)) # men
 		# DF(y) = δ*∫(1-α(x,y))*m(x,y)dx
-		DF_f[y] = δ * sum((1 .- α[:,:,:,y]) .* m[:,:,:,y])
+		DF_f[y] = δ * sum((1 - α[:,:,:,y]) .* m[:,:,:,y])
 	end
 	return DF_f
 end
@@ -61,18 +85,19 @@ function loss_msa(MF::Array, DF_m::Array, DF_f::Array,
 	# assumes input arrays are from ages 26-64: already dropped min and max
 
 	# proportion weights sum to 1 for each set of moments
-	sqrt_wgt_mar = sqrt.(wgt_mar) # sqrt of mass products for "linear" weighting
-	prop_wgt_mar = sqrt_wgt_mar ./ sum(sqrt_wgt_mar)
+	#sqrt_wgt_mar = sqrt.(wgt_mar) # sqrt of mass products for "linear" weighting
+	#prop_wgt_mar = sqrt_wgt_mar / sum(sqrt_wgt_mar)
+	prop_wgt_mar = wgt_mar / sum(wgt_mar) # "non-linear" weighting
 
-	prop_wgt_wom = wgt_wom ./ sum(wgt_wom)
-	prop_wgt_men = wgt_men ./ sum(wgt_men)
+	prop_wgt_wom = wgt_wom / sum(wgt_wom)
+	prop_wgt_men = wgt_men / sum(wgt_men)
 
-	loss_M = sum(prop_wgt_mar .* (MF .- dMF).^2)
+	loss_M = sum(prop_wgt_mar .* (MF - dMF).^2)
 
 	# scale the integrated DF moments so that MF and DF are on the same scale
 	# the math simplifies to dividing by the number of moments integrated over
-	loss_Dm = sum(prop_wgt_men .* (DF_m .- dDF_m).^2) / prod(size(wgt_wom))
-	loss_Df = sum(prop_wgt_wom .* (DF_f .- dDF_f).^2) / prod(size(wgt_men))
+	loss_Dm = sum(prop_wgt_men .* (DF_m - dDF_m).^2) / prod(size(wgt_wom))
+	loss_Df = sum(prop_wgt_wom .* (DF_f - dDF_f).^2) / prod(size(wgt_men))
 
 	return loss_M + 0.5 * (loss_Dm + loss_Df)
 end
@@ -91,7 +116,7 @@ function loss(ζ::Vector, δ::Real, ψm_ψf::Array, #θ::Real,
 	for msa in top_msa
 		# reconstitute full λ array from age-gap ξ vector and θ
 		# (\sum_x u_m(x))*(\sum_y u_f(y)) = U_m * U_f = \sum_x \sum_y u_m(x)*u_f(y)
-		λ = ξ ./ sqrt(sum(um_uf_all["$msa"]))
+		λ = ξ / sqrt(sum(um_uf_all["$msa"]))
 
 		# model_moments returns ages 26-65 (only need age 25 for marriage inflows)
 		MF, DF_m, DF_f = model_moments(λ, δ, ψm_ψf, mar_all["$msa"], um_uf_all["$msa"][2:end,:,:,2:end,:,:])
@@ -127,14 +152,18 @@ function loss_bbopt(x::Vector)
 end
 
 "Parameter grid search: Given ζ1, sweep through other parameters and return csv string."
-function obj_landscaper(ζ1::Real, z2g, z3g, z4g, z5g, z6g, dg,
+function obj_landscaper(ζ1::Real,# z2g, z3g, z4g, z5g, z6g, z7g, z8g, z9g, z10g,
+						dg,
 						ψm_ψf, marriages, sng_conv, MF, men_DF, wom_DF,
 						men_tot, wom_tot, pop_conv)
 	res = "" # results string
-	for	ζ2 in z2g, ζ3 in z3g, ζ4 in z4g, ζ5 in z5g, ζ6 in z6g, δ in dg, 
-		val = loss([ζ1, ζ2, ζ3, ζ4, ζ5, ζ6], δ,
+	#for ζ2 in z2g, ζ3 in z3g, ζ4 in z4g, ζ5 in z5g, ζ6 in z6g, ζ7 in z7g, ζ8 in z8g, ζ9 in z9g, ζ10 in z10g, δ in dg,
+	for δ in dg,
+		val = loss([ζ1], #, ζ2, ζ3, ζ4, ζ5, ζ6, ζ7, ζ8, ζ9, ζ10],
+				   δ,
 				   ψm_ψf, marriages, sng_conv, MF, men_DF, wom_DF, men_tot, wom_tot, pop_conv)
-		res *= string(ζ1, ",", ζ2, ",", ζ3, ",", ζ4, ",", ζ5, ",", ζ6, ",", δ, ",", val, "\n")
+		#res *= string(ζ1, ",", ζ2, ",", ζ3, ",", ζ4, ",", ζ5, ",", ζ6, ",", ζ7, ",", ζ8, ",", ζ9, ",", ζ10, ",", δ, ",", val, "\n")
+		res *= string(ζ1, ",", δ, ",", val, "\n")
 	end
 	return res
 end

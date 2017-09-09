@@ -82,31 +82,31 @@ for msa in top_msa
                                   @where i.MSA == msa
                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
                                   @collect DataFrame
-                                  end) ./ n_years
+                                  end) / n_years
 
 	wom_sng["$msa"] = indiv_array(@from i in df_wom_sng begin
                                   @where i.MSA == msa
                                   @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
                                   @collect DataFrame
-                                  end) ./ n_years
+                                  end) / n_years
 
 	men_tot["$msa"] = indiv_array(@from i in df_men_tot begin
                                   @where i.MSA == msa
                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
                                   @collect DataFrame
-                                  end) ./ n_years
+                                  end) / n_years
 
 	wom_tot["$msa"] = indiv_array(@from i in df_wom_tot begin
                                   @where i.MSA == msa
                                   @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
                                   @collect DataFrame
-                                  end) ./ n_years
+                                  end) / n_years
 
 	marriages["$msa"] = marr_array(@from i in df_marriages begin
                                    @where i.MSA == msa
                                    @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
                                    @collect DataFrame
-                                   end) ./ n_years
+                                   end) / n_years
 
 	sng_conv["$msa"] = convolution(*, men_sng["$msa"], wom_sng["$msa"])
 	pop_conv["$msa"] = convolution(*, men_tot["$msa"], wom_tot["$msa"])
@@ -116,19 +116,19 @@ for msa in top_msa
 							@where i.MSA == msa
 							@select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.FLOW}
 							@collect DataFrame
-							end) ./ n_years
+							end) / n_years
 
 	men_DF["$msa"] = indiv_array(@from i in df_men_DF begin
                                  @where i.MSA == msa
                                  @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
                                  @collect DataFrame
-                                 end) ./ n_years
+                                 end) / n_years
 
 	wom_DF["$msa"] = indiv_array(@from i in df_wom_DF begin
                                  @where i.MSA == msa
                                  @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
                                  @collect DataFrame
-                                 end) ./ n_years
+                                 end) / n_years
 end
 
 # load death arrival rates

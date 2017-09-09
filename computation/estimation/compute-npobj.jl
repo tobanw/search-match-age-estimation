@@ -1,14 +1,14 @@
 # Use smoothed population masses and estimated arrival rates to recover marital production function by MSA
-# Treat initial age as birth inflow (mass * phi), use u[2:end], n[2:end,2:end] for alpha, s, f
+# Treat initial age as birth inflow (mass * ρ), use u[2:end], m[2:end,2:end] for alpha, s, f
 
 
 ### Non-parametric Objects ###
 
 "Compute array of d factors (discount factors on surplus)."
 function compute_d(δ::Real, ψm_ψf::Array)
-	d = 1 ./ (r + ρ + δ .+ ψm_ψf)
+	d = 1 ./ (r + ρ + δ + ψm_ψf)
 	# overwrite with terminal case: d^{T,T} has no ρ (aging stops)
-	d[end,:,:,end,:,:] = 1 ./ (r + δ .+ ψm_ψf[end,:,:,end,:,:])
+	d[end,:,:,end,:,:] = 1 ./ (r + δ + ψm_ψf[end,:,:,end,:,:])
 	return d
 end
 
@@ -61,13 +61,25 @@ end
 
 ### Estimation Functions ###
 
-"Compute α for a given MSA."
+"Compute raw α for a given MSA."
 function compute_raw_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_uf::Array)
-	# trim off age 25
+	# trim off age 25, but use it for boundary inflows
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 
-	α = (m .* (ρ + δ .+ ψm_ψf) .- ρ .* mar_init[1:end-1,:,:,1:end-1,:,:]) ./ (λ .* um_uf .+ δ .* m)
-	return α # raw array may not lie within [0,1]
+	# alpha numerator: outflows(aging, divorce, death) - inflow(aging)
+
+	# fast array operation to build interior (boundary to be overwritten)
+	α = (m .* (ρ + δ + ψm_ψf) - ρ * mar_init[1:end-1,:,:,1:end-1,:,:])
+	
+	# boundary edges: add term to inflows (no change to outflows)
+	α[end,:,:,:,:,:] -= ρ * mar_init[end,:,:,1:end-1,:,:] # (T,b) case
+	α[:,:,:,end,:,:] -= ρ * mar_init[1:end-1,:,:,end,:,:] # (a,T) case
+	
+	# (T,T) case: no outflows from aging (inflows captured by above boundary edge adjustments)
+	α[end,:,:,end,:,:] -= ρ * m[end,:,:,end,:,:] # remove outflow, absorbing state
+
+	# divide by denominator
+	return α ./ (λ .* um_uf + δ * m) # raw array may not lie within [0,1]
 end
 
 "Compute α for a given MSA."
@@ -79,7 +91,7 @@ end
 
 "Compute surplus s by inverting α."
 function invert_alpha(c1::Array, α::Array)
-	return -c1 .* Φ_inv.(1 .- α) # use shifted c
+	return -c1 .* Φ_inv.(1 - α) # use shifted c
 end
 
 "Compute average value functions."
@@ -94,9 +106,9 @@ function compute_value_functions(λ::Array, dc1μ::Array, um_init::Array, uf_ini
 	v_f = zeros(uf_init)
 
 	# solve backwards because of continuation value
-	for j in 0:n_ages-1
-		k = n_ages - j # work back from terminal age
+	for k in n_ages:-1:1 # count down from terminal age
 		# NOTE: CartesianIndex doesn't need to be splatted
+
 		# female value function
 		for y in CartesianRange(size(u_f[1,:,:])) # use trimmed size
 			v_f[k,y] = ρ * v_f[k+1,y] + β * sum(λ[:,:,:,k,y] .* dc1μ[:,:,:,k,y] .* u_m)
@@ -105,6 +117,7 @@ function compute_value_functions(λ::Array, dc1μ::Array, um_init::Array, uf_ini
 		for x in CartesianRange(size(u_m[1,:,:])) # use trimmed size
 			v_m[k,x] = ρ * v_m[k+1,x] + (1-β) * sum(λ[k,x,:,:,:] .* dc1μ[k,x,:,:,:] .* u_f)
 		end
+
 	end
 
 	return v_m[1:end-1,:,:], v_f[1:end-1,:,:] # trim off age T+1
@@ -123,23 +136,20 @@ function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ:
 		y = xy.I[5:6]
 
 		# continuations from aging
-		ρa = ρ
-		ρA = ρ
-		ρb = ρ
-		ρB = ρ
-		ρAB = ρ
+		ρa, ρA, ρb, ρB, ρAB = ρ, ρ, ρ, ρ, ρ # initialize
 
 		if a == n_ages-1 # adjust discount factor on continuation value
 			ρa = 0
 		elseif a == n_ages # shut off continuation value
 			ρA = 0
+			ρa = 0
 		end
 		if b == n_ages-1 # adjust discount factor on continuation value
 			ρb = 0
 		elseif b == n_ages # shut off continuation value
 			ρB = 0
+			ρb = 0
 		end
-
 		if a == b == n_ages # shut off continuation surplus
 			ρAB = 0
 		end
@@ -149,7 +159,7 @@ function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ:
 				 - ρAB * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # ρAB shuts off s^{T+1,T+1} case
 				 - ρA * v_m[min(a+1,end),x...] / (r + ρa + ψ_m[min(a+1,end),x...])
 				 - ρB * v_f[min(b+1,end),y...] / (r + ρb + ψ_f[min(b+1,end),y...])) # ρB shuts off V^{T+1}
-	end
+	end #for
 
 	return f
 end

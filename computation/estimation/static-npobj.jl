@@ -31,7 +31,7 @@ function compute_raw_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array,
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 	# fast vectorized version
-	α = (m .* (δ .+ ψm_ψf)) ./ (λ .* um_uf .+ δ .* m)
+	α = (m .* (δ + ψm_ψf)) ./ (λ .* um_uf + δ * m)
 	return α # raw array may not lie within [0,1]
 end
 
@@ -44,7 +44,7 @@ end
 
 "Compute surplus s by inverting α."
 function invert_alpha(a::Array)
-	return -Φ_inv.(1 .- a)
+	return -Φ_inv.(1 - a)
 end
 
 "Compute average value functions."
@@ -67,7 +67,7 @@ function compute_value_functions(λ::Array, dμ::Array, um_init::Array, uf_init:
 		v_m[x] = sum(λ[x,:,:,:] .* dμ[x,:,:,:] .* u_f)
 	end
 
-	return (1-β) .* v_m, β .* v_f
+	return (1-β) * v_m, β * v_f
 end
 
 "Compute production function."
