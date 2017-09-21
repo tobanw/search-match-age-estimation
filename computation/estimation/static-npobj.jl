@@ -30,6 +30,7 @@ end
 function compute_raw_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_uf::Array)
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
+
 	# fast vectorized version
 	α = (m .* (δ + ψm_ψf)) ./ (λ .* um_uf + δ * m)
 	return α # raw array may not lie within [0,1]

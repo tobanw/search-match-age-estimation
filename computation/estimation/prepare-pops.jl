@@ -40,15 +40,15 @@ function marr_array(counts::DataFrame)
     return massarray
 end # marr_array
 
-"Convolution / outer product function for population measures and ψ."
-function convolution(op::Function, men::Array, wom::Array)
-	convy = Array{Float64}(size(men)...,size(wom)...) # assumes 3+3 dims
-	for xy in CartesianRange(size(convy))
+"Outer operation function for population measures and ψ."
+function outer_op(op::Function, men::Array, wom::Array)
+	out = Array{Float64}(size(men)...,size(wom)...) # assumes 3+3 dims
+	for xy in CartesianRange(size(out))
 		x = xy.I[1:3]
 		y = xy.I[4:6]
-		convy[xy] = op(men[x...], wom[y...]) # apply operator
+		out[xy] = op(men[x...], wom[y...]) # apply operator
 	end
-	return convy
+	return out
 end
 
 # load up smoothed masses from csv
@@ -108,8 +108,8 @@ for msa in top_msa
                                    @collect DataFrame
                                    end) / n_years
 
-	sng_conv["$msa"] = convolution(*, men_sng["$msa"], wom_sng["$msa"])
-	pop_conv["$msa"] = convolution(*, men_tot["$msa"], wom_tot["$msa"])
+	sng_conv["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
+	pop_conv["$msa"] = outer_op(*, men_tot["$msa"], wom_tot["$msa"])
 
 	# annual flow arrays
 	MF["$msa"] = marr_array(@from i in df_MF begin
@@ -134,7 +134,7 @@ end
 # load death arrival rates
 ψ_m = indiv_array(readtable("results/men-psi.csv"))
 ψ_f = indiv_array(readtable("results/wom-psi.csv"))
-ψm_ψf = convolution(+, ψ_m, ψ_f) # array of ψ_m(x) + ψ_f(y)
+ψm_ψf = outer_op(+, ψ_m, ψ_f) # array of ψ_m(x) + ψ_f(y)
 
 # store in JLD format
 jldopen("results/populations.jld", "w") do file  # open file for saving julia data

@@ -44,16 +44,20 @@ function compute_MF(λ::Array, um_uf::Array, α::Array)
 	return λ .* um_uf .* α
 end
 
-# TODO: better to compute DF once, then integrate: sum(DF, 4:6)
-function compute_DF_m(δ::Real, α::Array, m::Array)
-	DF_m = zeros(m[:,:,:,1,1,1])
-	for x in CartesianRange(size(DF_m)) # men
-		# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
-		DF_m[x] = δ * sum((1 - α[x,:,:,:]) .* m[x,:,:,:])
-	end
-	return DF_m
+function compute_DF(δ::Real, α::Array, m::Array)
+	return δ * (1 - α) .* m
 end
 
+function compute_DF_ind(δ::Real, α::Array, m::Array)
+	# DF(x) = δ*∫(1-α(x,y))*m(x,y)dy
+	DF = compute_DF(δ, α, m)
+	# integrate out opposite sex; get rid of extra dimensions
+	DF_m = sum(DF, 4:6)[:,:,:,1,1,1]
+	DF_f = sum(DF, 1:3)[1,1,1,:,:,:]
+	return DF_m, DF_f
+end
+
+# TODO: delete; deprecated
 function compute_DF_f(δ::Real, α::Array, m::Array)
 	DF_f = zeros(m[1,1,1,:,:,:])
 	for y in CartesianRange(size(DF_f)) # men
@@ -70,8 +74,7 @@ function model_moments(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_
 	
 	m = mar_init[2:end,:,:,2:end,:,:]
 
-	DF_m = compute_DF_m(δ, α, m)
-	DF_f = compute_DF_f(δ, α, m)
+	DF_m, DF_f = compute_DF_ind(δ, α, m)
 	MF = compute_MF(λ, um_uf, α)
 
 	# NOTE: max_age will be dropped in the estimation because of truncation

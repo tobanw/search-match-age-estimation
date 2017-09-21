@@ -16,14 +16,16 @@ end
 function compute_c(d::Array)
 	# 3 steps: (T,T) base case, then (a,T) and (T,b) boundaries, then interior
 	c = 1 + ρ * d # initialize array: only T,T terminal value is correct
+
 	# recursively fill boundary 
-	for k in 1:n_ages-1
-		c[end,:,:,end-k,:,:] = 1 + ρ * d[end,:,:,end-k,:,:] .* c[end,:,:,end-k+1,:,:] # age T husbands
-		c[end-k,:,:,end,:,:] = 1 + ρ * d[end-k,:,:,end,:,:] .* c[end-k+1,:,:,end,:,:] # age T wives
+	for k in n_ages-1:-1:1 # count down from terminal age
+		c[end,:,:,k,:,:] = 1 + ρ * d[end,:,:,k,:,:] .* c[end,:,:,k+1,:,:] # age T husbands
+		c[k,:,:,end,:,:] = 1 + ρ * d[k,:,:,end,:,:] .* c[k+1,:,:,end,:,:] # age T wives
 	end
+
 	# recursively fill layers from boundary inwards (via shrinking squares)
-	for k in 1:n_ages-1
-		c[1:end-k,:,:,1:end-k,:,:] = 1 + ρ * d[1:end-k,:,:,1:end-k,:,:] .* c[2:end-k+1,:,:,2:end-k+1,:,:]
+	for k in n_ages-1:-1:1 # count down from terminal age
+		c[1:k,:,:,1:k,:,:] = 1 + ρ * d[1:k,:,:,1:k,:,:] .* c[2:k+1,:,:,2:k+1,:,:]
 	end
 
 	return c
@@ -33,11 +35,11 @@ end
 function compute_c1(c::Array)
 	# 3 steps: (T,T) base case, then (a,T) and (T,b) boundaries, then interior
 	c1 = ones(c) # initialize array: only T,T terminal value is correct, c^{T+1,T+1} = 1
-	# recursively fill boundary 
-	for k in 1:n_ages-1
-		c1[end,:,:,end-k,:,:] = c[end,:,:,end-k+1,:,:] # age T husbands
-		c1[end-k,:,:,end,:,:] = c[end-k+1,:,:,end,:,:] # age T wives
-	end
+
+	# fill boundary 
+	c1[end,:,:,1:end-1,:,:] = c[end,:,:,2:end,:,:] # age T husbands
+	c1[1:end-1,:,:,end,:,:] = c[2:end,:,:,end,:,:] # age T wives
+
 	# fill interior
 	c1[1:end-1,:,:,1:end-1,:,:] = c[2:end,:,:,2:end,:,:]
 
@@ -107,17 +109,21 @@ function compute_value_functions(λ::Array, dc1μ::Array, um_init::Array, uf_ini
 
 	# solve backwards because of continuation value
 	for k in n_ages:-1:1 # count down from terminal age
+		if k+1 == n_ages
+			ρT = 0
+		else
+			ρT = ρ
+		end
+		λdc1μ = λ .* dc1μ
 		# NOTE: CartesianIndex doesn't need to be splatted
-
 		# female value function
-		for y in CartesianRange(size(u_f[1,:,:])) # use trimmed size
-			v_f[k,y] = ρ * v_f[k+1,y] + β * sum(λ[:,:,:,k,y] .* dc1μ[:,:,:,k,y] .* u_m)
+		for y in CartesianRange((2,2)) # use trimmed size
+			v_f[k,y] = ρ * v_f[k+1,y] / (r + ρT + ψ_f[min(k+1,end),y]) + β * sum(λdc1μ[:,:,:,k,y] .* u_m)
 		end
 		# male value function
-		for x in CartesianRange(size(u_m[1,:,:])) # use trimmed size
-			v_m[k,x] = ρ * v_m[k+1,x] + (1-β) * sum(λ[k,x,:,:,:] .* dc1μ[k,x,:,:,:] .* u_f)
+		for x in CartesianRange((2,2)) # use trimmed size
+			v_m[k,x] = ρ * v_m[k+1,x] / (r + ρT + ψ_m[min(k+1,end),x]) + (1-β) * sum(λdc1μ[k,x,:,:,:] .* u_f)
 		end
-
 	end
 
 	return v_m[1:end-1,:,:], v_f[1:end-1,:,:] # trim off age T+1

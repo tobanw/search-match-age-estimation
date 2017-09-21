@@ -14,8 +14,8 @@ estimate_rates = false # set true to run GMM estimation, otherwise just use ζ_0
 compute_np_obj = false
 
 # select optimizer for arrival rate estimation
-use_nlopt = false
-use_bbopt = true
+use_nlopt = false # nlopt not working, possibly due to julia update on Arch
+use_bbopt = false
 
 
 ### SETUP ### 
@@ -92,13 +92,6 @@ end # load data
 # load estimation functions
 @everywhere include("estim-functions.jl")
 
-if monte_carlo # monte carlo simulation to verify estimation
-	println("  > Simulating equilibria for Monte Carlo estimation...")
-	using MarriageMarkets
-	# overwrite equilibrium singles measures: men_sng, wom_sng, sng_conv and MF/DF
-	#@everywhere include("monte-carlo-static.jl")
-end
-
 # static or dynamic aging model
 if static_age
 	println("  > Using static age model")
@@ -117,6 +110,13 @@ else
 	@everywhere build_ξ = constant_ξ
 end
 
+if monte_carlo # monte carlo simulation to verify estimation
+	println("  > Simulating equilibria for Monte Carlo estimation...")
+	using MarriageMarkets
+	# overwrite equilibrium singles measures: men_sng, wom_sng, sng_conv and MF/DF
+	include("monte-carlo-static.jl")
+end
+
 
 ### INITIAL GUESSES ###
 
@@ -128,16 +128,6 @@ Uniform λ:
 ξ: 0.386
 δ: 0.035
 Loss: 859.02
-
-BBopt:
-ζ: [2.8223, 3.80494, 4.18702]
-δ: 0.037614593278515844
-Loss: 845.2647480122813
-
-With avg age params:
-ζ: [11.1629, 3.5432, 4.21858, 33.0407, 82.3968]
-δ: 0.03740435275515733
-Loss: 845.3516205677049
 
 Interpolations: 1+3+6 zeta
 ζ: [1.2, 1.733, 0.35, 0.65, 0.7 (max), 0.267, 0.3 (min), 0.633, 0.6, 0.6]
@@ -157,8 +147,8 @@ Non-sqrt moment weighting; Uniform ξ:
 Loss: 1301.4755109302262
 """
 
-ζ_0 = [0.87475] #
-δ_0 = 0.024428 # arrival rate of love shocks
+ζ_0 = [0.8] #[0.87475]
+δ_0 = 0.025 # arrival rate of love shocks
 
 
 ### ESTIMATION ###
@@ -184,7 +174,7 @@ if grid_search
 	"""
 
 	# interpolations: ζ2-ζ4 avg age knots, ζ5-ζ7 age gap knots
-	ζ1grid = linspace(0.1, 3.0, 300) # 8 (level)
+	ζ1grid = linspace(0.3, 1.6, 8) # 8 (level)
 	ζ2grid = linspace(1.2, 2.0, 4) # 4 age 3 knot (relative to level)
 	ζ3grid = linspace(0.25, 0.55, 4) # 3 age 10 knot
 	ζ4grid = linspace(0.55, 0.85, 4) # 3 age 40 knot
@@ -195,7 +185,7 @@ if grid_search
 	ζ8grid = linspace(0.5, 0.9, 4) # 14 (age gap 7)
 	ζ9grid = linspace(0.4, 0.7, 4) # 14 (age gap 12)
 	ζ10grid = linspace(0.2, 0.8, 4) # 14 (age gap 39)
-	δgrid = linspace(0.02, 0.05, 300) #[0.0375] # 1
+	δgrid = linspace(0.019, 0.032, 4) #[0.0375] # 1
 
 	# list of jobs: for each ζ1
 	gs_jobs = [(@spawn obj_landscaper(ζ1, #ζ2grid, ζ3grid, ζ4grid,
@@ -223,12 +213,12 @@ if estimate_rates # run optimizer for MD estimation
 	if use_nlopt
 		println("  > Using NLopt...")
 		using NLopt
-		opt = Opt(:GN_CRS2_LM, length(ζ_0)+1) # number of parameters
-		#opt = Opt(:GN_ESCH, length(ζ_0)+1) # doesn't converge...
-		population!(opt, 256) # default is 10*(n+1)
+		opt = Opt(:LN_COBYLA, length(ζ_0)+1) # number of parameters
+		#opt = Opt(:GN_CRS2_LM, length(ζ_0)+1) # number of parameters
+		#population!(opt, 256) # default is 10*(n+1)
 		#lower_bounds!(opt, 0.1 * [ζ_0..., δ_0]) # band around initial guess
-		lower_bounds!(opt, [0.01, 0.01])
-		upper_bounds!(opt, [10., 0.1])
+		lower_bounds!(opt, [0.1, 0.001])
+		upper_bounds!(opt, [100, 0.3])
 		#ftol_rel!(opt, 1e-12) # tolerance |Δf|/|f|
 		ftol_abs!(opt, 1e-6) # tolerance |Δf|
 		min_objective!(opt, loss_nlopt) # specify objective function
@@ -238,8 +228,8 @@ if estimate_rates # run optimizer for MD estimation
 		println("  > Using BlackBoxOptim...")
 		using BlackBoxOptim
 		# NES algos can be run in parallel
-		resbb = bboptimize(loss_bbopt; Method=:xnes, PopulationSize=64, Workers = workers(),
-						   SearchRange = [(0.2, 1.6),# (1.5, 5.5), (0, 0.8), (0, 0.8),
+		resbb = bboptimize(loss_bbopt; Method=:xnes,# PopulationSize=32, Workers = workers(),
+						   SearchRange = [(0.5, 1.2),# (1.5, 5.5), (0, 0.8), (0, 0.8),
 										  #(6.,39.), (0, 0.1),
 										  (0.01, 0.04)],
 						   MinDeltaFitnessTolerance = 1e-3, MaxSteps = 200000,
@@ -249,7 +239,7 @@ if estimate_rates # run optimizer for MD estimation
 		min_f = best_fitness(resbb)
 	
 	else
-		println("  > WARNING: No optimizer selected!")
+		warn("No optimizer selected!")
 	end
 
 	# estimates
