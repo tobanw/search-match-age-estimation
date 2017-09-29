@@ -5,10 +5,10 @@
 ### Non-parametric Objects ###
 
 "Compute array of d factors (discount factors on surplus)."
-function compute_d(δ::Real, ψm_ψf::Array)
+function compute_d(δ::Array, ψm_ψf::Array)
 	d = 1 ./ (r + ρ + δ + ψm_ψf)
 	# overwrite with terminal case: d^{T,T} has no ρ (aging stops)
-	d[end,:,:,end,:,:] = 1 ./ (r + δ + ψm_ψf[end,:,:,end,:,:])
+	d[end,:,:,end,:,:] = 1 ./ (r + δ[end,:,:,end,:,:] + ψm_ψf[end,:,:,end,:,:])
 	return d
 end
 
@@ -64,7 +64,7 @@ end
 ### Estimation Functions ###
 
 "Compute raw α for a given MSA."
-function compute_raw_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_uf::Array)
+function compute_raw_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array)
 	# trim off age 25, but use it for boundary inflows
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 
@@ -81,14 +81,7 @@ function compute_raw_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array,
 	α[end,:,:,end,:,:] -= ρ * m[end,:,:,end,:,:] # remove outflow, absorbing state
 
 	# divide by denominator
-	return α ./ (λ .* um_uf + δ * m) # raw array may not lie within [0,1]
-end
-
-"Compute α for a given MSA."
-function compute_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_uf::Array)
-	α = compute_raw_alpha(λ, δ, ψm_ψf, mar_init, um_uf)
-	# TODO: alternatively, could use smooth truncator
-	return clamp.(α, 1e-8, 1 - 1e-8) # enforce 0 < α < 1
+	return α ./ (λ .* um_uf + δ .* m) # raw array may not lie within [0,1]
 end
 
 "Compute surplus s by inverting α."
@@ -130,7 +123,7 @@ function compute_value_functions(λ::Array, dc1μ::Array, um_init::Array, uf_ini
 end
 
 "Compute production function."
-function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ::Array,
+function compute_production(δ::Array, ψ_m::Array, ψ_f::Array, d::Array, dc1μ::Array,
                             s::Array, v_m::Array, v_f::Array)
 	f = similar(s) # instantiate production array
 
@@ -161,7 +154,7 @@ function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, d::Array, dc1μ:
 		end
 
 		# truncate indices at T to handle boundary (except for T,T case)
-		f[xy] = (s[xy] + v_m[a,x...] + v_f[b,y...] - δ * dc1μ[xy]
+		f[xy] = (s[xy] + v_m[a,x...] + v_f[b,y...] - δ[xy] * dc1μ[xy]
 				 - ρAB * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # ρAB shuts off s^{T+1,T+1} case
 				 - ρA * v_m[min(a+1,end),x...] / (r + ρa + ψ_m[min(a+1,end),x...])
 				 - ρB * v_f[min(b+1,end),y...] / (r + ρb + ψ_f[min(b+1,end),y...])) # ρB shuts off V^{T+1}

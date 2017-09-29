@@ -4,33 +4,33 @@
 static_age = false # whether to use model with static age or with dynamic aging process
 monte_carlo = false # use population supplies to compute equilibria with MarriageMarkets; static only for now
 
-# select functional form for xi; if none selected, then constant ξ = ζ[1] is used
+# select functional forms for xi and delta; if none selected, then constant ζ[1] is used
 interpolated_xi = false
-logistic_xi = false
+logistic_xi = true
 
+interpolated_delta = false
+logistic_delta = true
+
+# what to run?
 reload_smooth = false # set true to reload the smoothed population csv files, otherwise use saved JLD
 grid_search = false
 estimate_rates = false # set true to run GMM estimation, otherwise just use ζ_0, δ_0 below
 compute_np_obj = false
 
 # select optimizer for arrival rate estimation
-use_nlopt = false # nlopt not working, possibly due to julia update on Arch
+use_nlopt = true
 use_bbopt = false
 
 
 ### SETUP ### 
 
-# PARALLEL: multiprocess for grid_search
+# PARALLEL: multiprocess for grid_search or bbopt
 if grid_search || (estimate_rates && use_bbopt)
 	addprocs() # add a worker process per core
 	println("  > Using $(nprocs()-1) worker processes")
 end
 
-using JLD, Distributions # JLD: for saving / loading julia objects
-
-if interpolated_xi
-	using Interpolations
-end
+using JLD, Distributions, Interpolations, DataFrames, Query # JLD: for saving / loading julia objects
 
 
 ### PARAMS ### 
@@ -60,32 +60,33 @@ end # begin block
 
 if reload_smooth # load from csv into dicts (and also save as JLD)
 	println("  > Reloading populations...")
-	@everywhere include("prepare-pops.jl")
-else # load from existing JLD file
-	@everywhere begin # load on all process in case running parallel
-		# load saved data as dict
-		pp = JLD.load("results/populations.jld")
-
-		# load and trim age 25 from psi
-		ψ_m = pp["men_psi"][2:end,:,:] # ages 26-65
-		ψ_f = pp["wom_psi"][2:end,:,:]
-		ψm_ψf = pp["psi_conv"][2:end,:,:,2:end,:,:]
-
-		# load population stock dicts (ages 25-65 inclusive)
-		men_sng = pp["men_sng"]
-		wom_sng = pp["wom_sng"]
-		men_tot = pp["men_tot"]
-		wom_tot = pp["wom_tot"]
-		marriages = pp["marriages"]
-		sng_conv = pp["sng_conv"]
-		pop_conv = pp["pop_conv"]
-
-		# load data	moments: marriage and divorce flow dicts (ages 25-65 inclusive)
-		MF = pp["MF"]
-		men_DF = pp["men_DF"]
-		wom_DF = pp["wom_DF"]
-	end # begin block
+	include("prepare-pops.jl")
 end # load data
+
+@everywhere begin # load on all process in case running parallel
+	# load saved data as dict
+	pp = JLD.load("results/populations.jld")
+
+	# load and trim age 25 from psi
+	ψ_m = pp["men_psi"][2:end,:,:] # ages 26-65
+	ψ_f = pp["wom_psi"][2:end,:,:]
+	ψm_ψf = pp["psi_outer"][2:end,:,:,2:end,:,:]
+
+	# load population stock dicts (ages 25-65 inclusive)
+	men_sng = pp["men_sng"]
+	wom_sng = pp["wom_sng"]
+	men_tot = pp["men_tot"]
+	wom_tot = pp["wom_tot"]
+	marriages = pp["marriages"]
+	sng_outer = pp["sng_outer"]
+	pop_outer = pp["pop_outer"]
+
+	# load data	moments: marriage and divorce flow dicts (ages 25-65 inclusive)
+	MF = pp["MF"]
+	men_DF = pp["men_DF"]
+	wom_DF = pp["wom_DF"]
+end # begin block
+
 
 ### MODEL ###
 
@@ -103,17 +104,32 @@ end
 
 # functional form for arrival rates ξ
 if interpolated_xi
-	@everywhere build_ξ = interp_ξ
+	println("  > Using interpolated ξ")
+	@everywhere build_ξ = interp_rate
 elseif logistic_xi
-	@everywhere build_ξ = logistic_ξ
+	println("  > Using logistic ξ")
+	@everywhere build_ξ = logistic_rate
 else
-	@everywhere build_ξ = constant_ξ
+	println("  > Using constant ξ")
+	@everywhere build_ξ = constant_rate
+end
+
+# functional form for arrival rates δ
+if interpolated_delta
+	println("  > Using interpolated δ")
+	@everywhere build_δ = interp_rate
+elseif logistic_delta
+	println("  > Using logistic δ")
+	@everywhere build_δ = logistic_rate
+else
+	println("  > Using constant δ")
+	@everywhere build_δ = constant_rate
 end
 
 if monte_carlo # monte carlo simulation to verify estimation
 	println("  > Simulating equilibria for Monte Carlo estimation...")
 	using MarriageMarkets
-	# overwrite equilibrium singles measures: men_sng, wom_sng, sng_conv and MF/DF
+	# overwrite equilibrium singles measures: men_sng, wom_sng, sng_outer and MF/DF
 	include("monte-carlo-static.jl")
 end
 
@@ -122,7 +138,6 @@ end
 
 """
 *** Static model estimates ***
-TODO: Monte Carlo to make sure it can recover params from simulated eqm
 
 Uniform λ:
 ξ: 0.386
@@ -136,19 +151,24 @@ Loss: 823.26
 
 *** Dynamic model estimates ***
 
-Uniform ξ:
-ξ: 0.874752
-δ: 0.02442846504409377
-Loss: 1109.4199650520745
-
 Non-sqrt moment weighting; Uniform ξ:
-ξ: [0.79647]
-δ: 0.02507793089870493
-Loss: 1301.4755109302262
+ξ: [0.797566]
+δ: 0.025083746441886164
+Loss: 1301.47469321623
+
+Logistic (asymmetric 6 param) ξ:
+ζ: [36.4199, -0.734598, 0.319835, 0.20938, 8.20723, 0.123263]
+δ: 0.031102314493752125
+Loss: 1192.5731314282184
+
+Interpolated:
+ζ: [6.70401, 0.288831, 0.0849464, 0.0212671, 0.001, 0.0162982, 0.775318, 0.667261, 0.0122603, 0.0126533]
+δ: 0.030691015387483426
+Loss: 1193.6704652231151
 """
 
-ζ_0 = [0.8] #[0.87475]
-δ_0 = 0.025 # arrival rate of love shocks
+ζx_0 = [1.88, 2, 0.3, 0, 0]
+ζd_0 = [0.044, 2, 0, 0, 0.067]
 
 
 ### ESTIMATION ###
@@ -162,44 +182,47 @@ if grid_search
 	# with 8 processes, runs 54 evals per second: 3240/min, 195k/hour
 	# with double interpolation, ran slower: 140k/hour (probably because interpolators are constructed inside the function)
 
-	"""
 	# logistic: ζ = [c,m,s1,s2] (age-gap) + [m,s] (avg age)
-	ζ1grid = linspace(7., 16., 8) # (global multiplicative scale-factor for λ)
-	ζ2grid = linspace(0., 4., 4) # (mean for age-gap meeting slowdown)
-	ζ3grid = linspace(0.2, 0.4, 5) # (1/spread for negative age-gap meeting slowdown)
-	ζ4grid = linspace(0.1, 0.25, 4) # (1/spread for positive age-gap meeting slowdown)
-	ζ5grid = [1.,4.,10.,70.,100.] #linspace(10., 70., 5) # (mean for avg age search slowdown)
-	ζ6grid = linspace(0.005, 0.03, 5) # (spread for avg age search slowdown)
-	δgrid = [0.04] #linspace(0.03, 0.05, 3) # (divorce rate)
-	"""
+	ζx1grid = linspace(0.1, 32.0, 64) # (global multiplicative scale-factor for λ)
+	ζx2grid = [2] #linspace(0., 4., 4) # (mean for age-gap meeting slowdown)
+	ζx3grid = linspace(0, 0.8, 32) # (1/spread for age-gap meeting slowdown)
+	ζx4grid = [0] #linspace(10., 70., 5) # (mean for avg age search slowdown)
+	ζx5grid = [0] #linspace(0, 0.08, 3) # (1/spread for avg age search slowdown)
 
+	ζd1grid = linspace(0.03, 1, 98) # (global multiplicative scale-factor for δ)
+	ζd2grid = [2] #linspace(0., 4., 4) # (mean for age-gap slowdown)
+	ζd3grid = [0] #linspace(0, 0.3, 4) # (1/spread for age-gap slowdown)
+	ζd4grid = [0] #linspace(-12, 0, 8) # (mean for avg age slowdown)
+	ζd5grid = linspace(0.02, 0.8, 32) # (1/spread for avg age slowdown)
+
+	"""
 	# interpolations: ζ2-ζ4 avg age knots, ζ5-ζ7 age gap knots
-	ζ1grid = linspace(0.3, 1.6, 8) # 8 (level)
-	ζ2grid = linspace(1.2, 2.0, 4) # 4 age 3 knot (relative to level)
-	ζ3grid = linspace(0.25, 0.55, 4) # 3 age 10 knot
-	ζ4grid = linspace(0.55, 0.85, 4) # 3 age 40 knot
-	#gap_knots = ([-39,-8,-3,2,7,12,39],)
-	ζ5grid = linspace(0.1, 0.7, 4) # 3 (age gap: -39)
-	ζ6grid = linspace(0.1, 0.6, 4) # 4 (age gap -8)
-	ζ7grid = linspace(0.3, 0.8, 4) # 14 (age gap -3)
-	ζ8grid = linspace(0.5, 0.9, 4) # 14 (age gap 7)
-	ζ9grid = linspace(0.4, 0.7, 4) # 14 (age gap 12)
-	ζ10grid = linspace(0.2, 0.8, 4) # 14 (age gap 39)
-	δgrid = linspace(0.019, 0.032, 4) #[0.0375] # 1
+	ζ1grid = linspace(1, 24, 8) # 8 (level)
+	ζ2grid = linspace(0.1, 0.8, 6) # 4 age 8 knot (relative to level)
+	ζ3grid = linspace(0.01, 0.25, 3) # 3 age 20 knot
+	ζ4grid = linspace(0.001, 0.25, 3) # 3 age 40 knot
+	#gap_knots = ([-39, -15, -2, 2, 6, 19, 39])
+	ζ5grid = linspace(0.001, 0.05, 3) # 3 (age gap: -39)
+	ζ6grid = linspace(0.01, 0.1, 3) # 3 (age gap -15)
+	ζ7grid = linspace(0.5, 1.2, 4) # 3 (age gap -2)
+	ζ8grid = linspace(0.5, 1.5, 5) # 3 (age gap 6)
+	ζ9grid = linspace(0.001, 0.05, 3) # 3 (age gap 19)
+	ζ10grid = linspace(0.005, 0.05, 3) # 3 (age gap 39)
+	δgrid = linspace(0.02, 0.16, 6) #[0.0375] # 1
+	"""
 
 	# list of jobs: for each ζ1
-	gs_jobs = [(@spawn obj_landscaper(ζ1, #ζ2grid, ζ3grid, ζ4grid,
-									  #ζ5grid, ζ6grid, ζ7grid, ζ8grid, ζ9grid, ζ10grid,
-									  δgrid,
-									  ψm_ψf, marriages, sng_conv, MF, men_DF, wom_DF,
-									  men_tot, wom_tot, pop_conv)) for ζ1 in ζ1grid]
+	gs_jobs = [(@spawn obj_landscaper(ζx1, ζx2grid, ζx3grid, ζx4grid, ζx5grid,
+									  ζd1grid, ζd2grid, ζd3grid, ζd4grid, ζd5grid,
+									  ψm_ψf, marriages, sng_outer, MF, men_DF, wom_DF,
+									  men_tot, wom_tot, pop_outer)) for ζx1 in ζx1grid]
 
 	result_list = [fetch(job) for job in gs_jobs] # list of strings
 	result_str = join(result_list) # merge into single string
 
 	open("results/loss-function/loss-grid.csv", "w") do f
-		#write(f, "ζ1,ζ2,ζ3,ζ4,ζ5,ζ6,ζ7,ζ8,ζ9,ζ10,δ,LOSS\n")
-		write(f, "ζ1,δ,LOSS\n")
+		write(f, "ζx1,ζx2,ζx3,ζx4,ζx5,ζd1,ζd2,ζd3,ζd4,ζd5,LOSS_MF,LOSS_DF,LOSS\n")
+		#write(f, "ζ1,δ,LOSS_MF,LOSS_DF,LOSS\n")
 		write(f, result_str)
 	end # write to file
 end # grid_search
@@ -213,16 +236,17 @@ if estimate_rates # run optimizer for MD estimation
 	if use_nlopt
 		println("  > Using NLopt...")
 		using NLopt
-		opt = Opt(:LN_COBYLA, length(ζ_0)+1) # number of parameters
+		opt = Opt(:LN_COBYLA, length(ζx_0)+length(ζd_0)) # number of parameters
 		#opt = Opt(:GN_CRS2_LM, length(ζ_0)+1) # number of parameters
 		#population!(opt, 256) # default is 10*(n+1)
-		#lower_bounds!(opt, 0.1 * [ζ_0..., δ_0]) # band around initial guess
-		lower_bounds!(opt, [0.1, 0.001])
-		upper_bounds!(opt, [100, 0.3])
+		#lower_bounds!(opt, 0.1 * [ζx_0..., ζd_0...]) # band around initial guess
+		#upper_bounds!(opt, 10 * [ζx_0..., ζd_0...]) # band around initial guess
+		lower_bounds!(opt, [0.1, -10, 0, -50, 0, 0.05, -10, 0, -50, 0])
+		upper_bounds!(opt, [300,  15, 1,  50, 1, 5,     15, 1,  50, 1.])
 		#ftol_rel!(opt, 1e-12) # tolerance |Δf|/|f|
-		ftol_abs!(opt, 1e-6) # tolerance |Δf|
+		ftol_abs!(opt, 1e-8) # tolerance |Δf|
 		min_objective!(opt, loss_nlopt) # specify objective function
-		min_f, min_x, ret = optimize(opt, [ζ_0...,δ_0]) # run!
+		min_f, min_x, ret = optimize(opt, [ζx_0..., ζd_0...]) # run!
 
 	elseif use_bbopt
 		println("  > Using BlackBoxOptim...")
@@ -243,23 +267,22 @@ if estimate_rates # run optimizer for MD estimation
 	end
 
 	# estimates
-	ζ = min_x[1:end-1]
-	δ = min_x[end]
+	ζ = min_x[1:length(ζx_0)]
+	δ = min_x[end-length(ζd_0):end]
 
-	println("  > Done! Uniform λ with raw α.")
+	println("  > Done!")
 	println("ζ: $ζ") 
 	println("δ: $δ")
 	println("Loss: $min_f")
 else # just use the initial guess
-	ζ = ζ_0
-	δ = δ_0
+	ζx = ζx_0
+	ζd = ζd_0
 end # estimate_rates
 
 
-### Non-parametric objects ###
+### Non-parametric object estimates ###
 
 if compute_np_obj
-
 	println("  > Computing and saving non-parametric object estimates")
 
 	# precompute discount factors
@@ -278,18 +301,25 @@ if compute_np_obj
 	men_val = Dict{AbstractString, Array}()
 	wom_val = Dict{AbstractString, Array}()
 	production = Dict{AbstractString, Array}()
+	mMF = Dict{AbstractString, Array}()
+	mDF_m = Dict{AbstractString, Array}()
+	mDF_f = Dict{AbstractString, Array}()
 
-	ξ = build_ξ(ζ) # construct ξ
+	ξ = build_ξ(ζx) # construct ξ
+	δ = build_δ(ζd) # construct ξ
 
 	for msa in top_msa
 		# U_m, U_f per marriage market
 		λ = ξ / sqrt(sum(men_sng["$msa"]) * sum(wom_sng["$msa"]))
 
 		# match probability (α)
-		alpha["$msa"] = compute_alpha(λ, δ, ψm_ψf, marriages["$msa"], sng_conv["$msa"][2:end,:,:,2:end,:,:])
+		alpha["$msa"] = compute_alpha(λ, δ, ψm_ψf, marriages["$msa"], sng_outer["$msa"][2:end,:,:,2:end,:,:])
 
 		# non-truncated α
-		alpha_raw["$msa"] = compute_raw_alpha(λ, δ, ψm_ψf, marriages["$msa"], sng_conv["$msa"][2:end,:,:,2:end,:,:])
+		alpha_raw["$msa"] = compute_raw_alpha(λ, δ, ψm_ψf, marriages["$msa"], sng_outer["$msa"][2:end,:,:,2:end,:,:])
+
+		mMF["$msa"], mDF_m["$msa"], mDF_f["$msa"] = model_moments(λ, δ, ψm_ψf, marriages["$msa"],
+																  sng_outer["$msa"][2:end,:,:,2:end,:,:])
 
 		if static_age
 			# marital surplus (S)
@@ -328,8 +358,8 @@ if compute_np_obj
 
 	# store in JLD format
 	jldopen("results/estimates.jld", "w") do file  # open file for saving julia data
-		write(file, "zeta", ζ)
-		write(file, "delta", δ)
+		write(file, "z-xi", ζx)
+		write(file, "z-delta", ζd)
 		# all arrays ages 26-65
 		write(file, "alpha", alpha)
 		write(file, "alpha_raw", alpha_raw)
@@ -338,5 +368,47 @@ if compute_np_obj
 		write(file, "wom_val", wom_val)
 		write(file, "production", production)
 		write(file, "avg_production", avg_production)
+		write(file, "mMF", mMF)
+		write(file, "mDF_m", mDF_m)
+		write(file, "mDF_f", mDF_f)
 	end # do
-end #if
+
+	### Write results arrays to CSV ###
+
+	function msa_martab(d::Dict)
+		df = DataFrame(AGE_M = Int64[], COLLEGE_M = Int64[], MINORITY_M = Int64[],
+					   AGE_F = Int64[], COLLEGE_F = Int64[], MINORITY_F = Int64[],
+					   MSA = Int64[], VALUE = Float64[])
+
+		for msa in top_msa
+			for idx in CartesianRange(size(d["$msa"]))
+				i = idx.I
+				push!(df, @data([25+i[1],i[2],i[3],25+i[4],i[5],i[6],msa,d["$msa"][idx]]))
+			end
+		end
+		return df
+	end
+
+	function msa_indtab(d::Dict)
+		df = DataFrame(AGE = Int64[], COLLEGE = Int64[], MINORITY = Int64[],
+					   MSA = Int64[], VALUE = Float64[])
+
+		for msa in top_msa
+			for idx in CartesianRange(size(d["$msa"]))
+				i = idx.I
+				push!(df, @data([25+i[1],i[2],i[3],msa,d["$msa"][idx]]))
+			end
+		end
+		return df
+	end
+
+	# convert to CSV for plotting
+	writetable("results/estimates-csv/prod.csv", msa_martab(production))
+	writetable("results/estimates-csv/alpha.csv", msa_martab(alpha))
+	writetable("results/estimates-csv/surplus.csv", msa_martab(surplus))
+	writetable("results/estimates-csv/men_val.csv", msa_indtab(men_val))
+	writetable("results/estimates-csv/wom_val.csv", msa_indtab(wom_val))
+	writetable("results/estimates-csv/mMF.csv", msa_martab(mMF))
+	writetable("results/estimates-csv/mDF_m.csv", msa_indtab(mDF_m))
+	writetable("results/estimates-csv/mDF_f.csv", msa_indtab(mDF_f))
+end # compute_np_obj

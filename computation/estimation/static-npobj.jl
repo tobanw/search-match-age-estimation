@@ -5,8 +5,8 @@
 ### Other Estimation Objects ###
 
 "Compute array of d factors (discount factors on surplus)."
-function compute_d(δ::Real, ψm_ψf::Array)
-	return 1 ./ (r + δ .+ ψm_ψf)
+function compute_d(δ::Array, ψm_ψf::Array)
+	return 1 ./ (r + δ + ψm_ψf)
 end
 
 # inverse cdf of standard normal distribution (for inverting α)
@@ -27,20 +27,13 @@ end
 ### Estimation Functions ###
 
 "Compute α for a given MSA."
-function compute_raw_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_uf::Array)
+function compute_raw_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array)
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 
 	# fast vectorized version
-	α = (m .* (δ + ψm_ψf)) ./ (λ .* um_uf + δ * m)
+	α = (m .* (δ + ψm_ψf)) ./ (λ .* um_uf + δ .* m)
 	return α # raw array may not lie within [0,1]
-end
-
-"Compute α for a given MSA."
-function compute_alpha(λ::Array, δ::Real, ψm_ψf::Array, mar_init::Array, um_uf::Array)
-	α = compute_raw_alpha(λ, δ, ψm_ψf, mar_init, um_uf)
-	# TODO: alternatively, could use smooth truncator
-	return clamp.(α, 1e-8, 1 - 1e-8) # enforce 0 < α < 1
 end
 
 "Compute surplus s by inverting α."
@@ -72,14 +65,14 @@ function compute_value_functions(λ::Array, dμ::Array, um_init::Array, uf_init:
 end
 
 "Compute production function."
-function compute_production(δ::Real, ψ_m::Array, ψ_f::Array, dμ::Array,
+function compute_production(δ::Array, ψ_m::Array, ψ_f::Array, dμ::Array,
                             s::Array, v_m::Array, v_f::Array)
 	f = similar(s) # instantiate production array
 	for xy in CartesianRange(size(f))
 		x = xy.I[1:3]
 		y = xy.I[4:6]
 
-		f[xy] = s[xy] + v_m[x...] + v_f[y...] - δ * dμ[xy]
+		f[xy] = s[xy] + v_m[x...] + v_f[y...] - δ[xy] * dμ[xy]
 	end
 	return f
 end

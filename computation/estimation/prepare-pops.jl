@@ -64,11 +64,11 @@ wom_sng = Dict{AbstractString, Array}()
 men_tot = Dict{AbstractString, Array}()
 wom_tot = Dict{AbstractString, Array}()
 marriages = Dict{AbstractString, Array}()
-sng_conv = Dict{AbstractString, Array}() # u_m(x)*u_f(y) arrays
-pop_conv = Dict{AbstractString, Array}() # ℓ_m(x)*ℓ_f(y) arrays
+sng_outer = Dict{AbstractString, Array}() # u_m(x)*u_f(y) arrays
+pop_outer = Dict{AbstractString, Array}() # ℓ_m(x)*ℓ_f(y) arrays
 
 # load up flows for rate parameter estimation
-df_MF = readtable("data/MF.csv")
+df_MF = readtable("data/pair-MF.csv")
 df_men_DF = readtable("data/men-DF.csv")
 df_wom_DF = readtable("data/wom-DF.csv")
 
@@ -108,8 +108,8 @@ for msa in top_msa
                                    @collect DataFrame
                                    end) / n_years
 
-	sng_conv["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
-	pop_conv["$msa"] = outer_op(*, men_tot["$msa"], wom_tot["$msa"])
+	sng_outer["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
+	pop_outer["$msa"] = outer_op(*, men_tot["$msa"], wom_tot["$msa"])
 
 	# annual flow arrays
 	MF["$msa"] = marr_array(@from i in df_MF begin
@@ -141,7 +141,7 @@ jldopen("results/populations.jld", "w") do file  # open file for saving julia da
 	# arrays: death arrival rates (includes age 25)
 	write(file, "men_psi", ψ_m)
 	write(file, "wom_psi", ψ_f)
-	write(file, "psi_conv", ψm_ψf)
+	write(file, "psi_outer", ψm_ψf)
 
 	# dictionaries: stocks per MSA
     write(file, "men_sng", men_sng)
@@ -149,8 +149,8 @@ jldopen("results/populations.jld", "w") do file  # open file for saving julia da
     write(file, "men_tot", men_tot)
     write(file, "wom_tot", wom_tot)
     write(file, "marriages", marriages)
-    write(file, "sng_conv", sng_conv)
-    write(file, "pop_conv", pop_conv)
+    write(file, "sng_outer", sng_outer)
+    write(file, "pop_outer", pop_outer)
 
 	# dictionaries: flows per MSA
     write(file, "MF", MF)
