@@ -53,11 +53,25 @@ end
 
 "Load data, aggregating out unwanted types."
 function loader(a)
-	if no_school
-		if length(size(a)) == 3
+	if length(size(a)) == 3
+		if no_edu && no_race
+			out = sum(a, (2,3))
+		elseif no_edu
 			out = sum(a, 2)
-		elseif length(size(a)) == 6
+		elseif no_race
+			out = sum(a, 3)
+		else
+			out = a
+		end
+	elseif length(size(a)) == 6
+		if no_edu && no_race
+			out = sum(a, (2,3,5,6))
+		elseif no_edu
 			out = sum(a, (2,5))
+		elseif no_race
+			out = sum(a, (3,6))
+		else
+			out = a
 		end
 	else
 		out = a

@@ -3,7 +3,7 @@
 # select model
 static_age = false # whether to use model with static age or with dynamic aging process
 monte_carlo = false # use population supplies to compute equilibria with MarriageMarkets; static only for now
-#NOTE: set `no_school` in @everywhere block below
+#NOTE: set `no_edu` and `no_race` in @everywhere block below
 
 # select functional forms for xi and delta; if none selected, then constant ζ[1] is used
 interpolated_xi = false
@@ -38,7 +38,8 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 
 @everywhere begin # load on all process in case running parallel
 
-	const no_school = false # whether to exclude college as a static type
+	const no_edu = false # whether to exclude college as a static type
+	const no_race = false # whether to exclude race as a static type
 
 	const r = 0.04 # discount rate
 	const ρ = 1.0 # aging rate
@@ -56,8 +57,19 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 					 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
 	const n_msa = length(top_msa)
 
-	const dim_ind = no_school?(n_ages,1,2):(n_ages,2,2)
-	const dim_mar = no_school?(n_ages,1,2,n_ages,1,2):(n_ages,2,2,n_ages,2,2)
+	if no_edu && no_race
+		const dim_ind = (n_ages,1,1)
+		const dim_mar = (n_ages,1,1,n_ages,1,1)
+	elseif no_edu
+		const dim_ind = (n_ages,1,2)
+		const dim_mar = (n_ages,1,2,n_ages,1,2)
+	elseif no_race
+		const dim_ind = (n_ages,2,1)
+		const dim_mar = (n_ages,2,1,n_ages,2,1)
+	else
+		const dim_ind = (n_ages,2,2)
+		const dim_mar = (n_ages,2,2,n_ages,2,2)
+	end
 end # begin block
 
 
