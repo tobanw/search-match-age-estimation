@@ -110,11 +110,11 @@ function compute_value_functions(λ::Array, dc1μ::Array, um_init::Array, uf_ini
 		λdc1μ = λ .* dc1μ
 		# NOTE: CartesianIndex doesn't need to be splatted
 		# female value function
-		for y in CartesianRange((2,2)) # use trimmed size
+		for y in CartesianRange(size(v_f[1,:,:])) # use trimmed size
 			v_f[k,y] = ρ * v_f[k+1,y] / (r + ρT + ψ_f[min(k+1,end),y]) + β * sum(λdc1μ[:,:,:,k,y] .* u_m)
 		end
 		# male value function
-		for x in CartesianRange((2,2)) # use trimmed size
+		for x in CartesianRange(size(v_m[1,:,:])) # use trimmed size
 			v_m[k,x] = ρ * v_m[k+1,x] / (r + ρT + ψ_m[min(k+1,end),x]) + (1-β) * sum(λdc1μ[k,x,:,:,:] .* u_f)
 		end
 	end

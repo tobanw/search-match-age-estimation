@@ -3,6 +3,7 @@
 # select model
 static_age = false # whether to use model with static age or with dynamic aging process
 monte_carlo = false # use population supplies to compute equilibria with MarriageMarkets; static only for now
+#NOTE: set `no_edu` and `no_race` in @everywhere block below
 
 # select functional forms for xi and delta; if none selected, then constant ζ[1] is used
 interpolated_xi = false
@@ -13,7 +14,7 @@ logistic_delta = true
 
 # what to run?
 reload_smooth = false # set true to reload the smoothed population csv files, otherwise use saved JLD
-grid_search = false
+grid_search = true
 estimate_rates = false # set true to run GMM estimation, otherwise just use ζ_0, δ_0 below
 compute_np_obj = false
 
@@ -30,12 +31,15 @@ if grid_search || (estimate_rates && use_bbopt)
 	println("  > Using $(nprocs()-1) worker processes")
 end
 
-using JLD, Distributions, Interpolations, DataFrames, Query # JLD: for saving / loading julia objects
+using JLD, Distributions, Interpolations, DataFrames, Query
 
 
 ### PARAMS ### 
 
 @everywhere begin # load on all process in case running parallel
+
+	const no_edu = false # whether to exclude college as a static type
+	const no_race = false # whether to exclude race as a static type
 
 	const r = 0.04 # discount rate
 	const ρ = 1.0 # aging rate
@@ -53,6 +57,19 @@ using JLD, Distributions, Interpolations, DataFrames, Query # JLD: for saving / 
 					 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
 	const n_msa = length(top_msa)
 
+	if no_edu && no_race
+		const dim_ind = (n_ages,1,1)
+		const dim_mar = (n_ages,1,1,n_ages,1,1)
+	elseif no_edu
+		const dim_ind = (n_ages,1,2)
+		const dim_mar = (n_ages,1,2,n_ages,1,2)
+	elseif no_race
+		const dim_ind = (n_ages,2,1)
+		const dim_mar = (n_ages,2,1,n_ages,2,1)
+	else
+		const dim_ind = (n_ages,2,2)
+		const dim_mar = (n_ages,2,2,n_ages,2,2)
+	end
 end # begin block
 
 
@@ -61,13 +78,14 @@ end # begin block
 if reload_smooth # load from csv into dicts (and also save as JLD)
 	println("  > Reloading populations...")
 	include("prepare-pops.jl")
-end # load data
+end
 
 @everywhere begin # load on all process in case running parallel
 	# load saved data as dict
 	pp = JLD.load("results/populations.jld")
 
-	# load and trim age 25 from psi
+
+	# load and trim age 25 from psi, summing out edu
 	ψ_m = pp["men_psi"][2:end,:,:] # ages 26-65
 	ψ_f = pp["wom_psi"][2:end,:,:]
 	ψm_ψf = pp["psi_outer"][2:end,:,:,2:end,:,:]
@@ -151,14 +169,14 @@ Loss: 823.26
 
 *** Dynamic model estimates ***
 
-Non-sqrt moment weighting; Uniform ξ:
-ξ: [0.797566]
-δ: 0.025083746441886164
-Loss: 1301.47469321623
+Non-sqrt moment weighting; Uniform ξ (no school):
+ξ: 0.797566 (0.402775)
+δ: 0.025083746441886164 (0.036498)
+Loss: 1301.47469321623 (4933.6746)
 
-Logistic (asymmetric 6 param) ξ:
-ζ: [36.4199, -0.734598, 0.319835, 0.20938, 8.20723, 0.123263]
-δ: 0.031102314493752125
+Logistic (symmetric 5 param) ξ,δ:
+ζ: [0.91, 2, 0.19, 0, 0]
+δ: [0.042, 2, 0, 0, 0.06]
 Loss: 1192.5731314282184
 
 Interpolated:
@@ -167,8 +185,8 @@ Interpolated:
 Loss: 1193.6704652231151
 """
 
-ζx_0 = [1.88, 2, 0.3, 0, 0]
-ζd_0 = [0.044, 2, 0, 0, 0.067]
+ζx_0 = [0.91, 2, 0.19, 0, 0]
+ζd_0 = [0.042, 2, 0, 0, 0.06]
 
 
 ### ESTIMATION ###
@@ -183,17 +201,17 @@ if grid_search
 	# with double interpolation, ran slower: 140k/hour (probably because interpolators are constructed inside the function)
 
 	# logistic: ζ = [c,m,s1,s2] (age-gap) + [m,s] (avg age)
-	ζx1grid = linspace(0.1, 32.0, 64) # (global multiplicative scale-factor for λ)
+	ζx1grid = linspace(0.8, 1.0, 8) # (global multiplicative scale-factor for λ)
 	ζx2grid = [2] #linspace(0., 4., 4) # (mean for age-gap meeting slowdown)
-	ζx3grid = linspace(0, 0.8, 32) # (1/spread for age-gap meeting slowdown)
+	ζx3grid = linspace(0.1, 0.3, 8) # (1/spread for age-gap meeting slowdown)
 	ζx4grid = [0] #linspace(10., 70., 5) # (mean for avg age search slowdown)
 	ζx5grid = [0] #linspace(0, 0.08, 3) # (1/spread for avg age search slowdown)
 
-	ζd1grid = linspace(0.03, 1, 98) # (global multiplicative scale-factor for δ)
+	ζd1grid = linspace(0.03, 0.08, 16) # (global multiplicative scale-factor for δ)
 	ζd2grid = [2] #linspace(0., 4., 4) # (mean for age-gap slowdown)
 	ζd3grid = [0] #linspace(0, 0.3, 4) # (1/spread for age-gap slowdown)
 	ζd4grid = [0] #linspace(-12, 0, 8) # (mean for avg age slowdown)
-	ζd5grid = linspace(0.02, 0.8, 32) # (1/spread for avg age slowdown)
+	ζd5grid = linspace(0.02, 0.1, 8) # (1/spread for avg age slowdown)
 
 	"""
 	# interpolations: ζ2-ζ4 avg age knots, ζ5-ζ7 age gap knots
@@ -237,12 +255,14 @@ if estimate_rates # run optimizer for MD estimation
 		println("  > Using NLopt...")
 		using NLopt
 		opt = Opt(:LN_COBYLA, length(ζx_0)+length(ζd_0)) # number of parameters
-		#opt = Opt(:GN_CRS2_LM, length(ζ_0)+1) # number of parameters
+		#opt = Opt(:GN_CRS2_LM, length(ζx_0)+length(ζd_0)) # number of parameters
 		#population!(opt, 256) # default is 10*(n+1)
 		#lower_bounds!(opt, 0.1 * [ζx_0..., ζd_0...]) # band around initial guess
 		#upper_bounds!(opt, 10 * [ζx_0..., ζd_0...]) # band around initial guess
-		lower_bounds!(opt, [0.1, -10, 0, -50, 0, 0.05, -10, 0, -50, 0])
-		upper_bounds!(opt, [300,  15, 1,  50, 1, 5,     15, 1,  50, 1.])
+		lower_bounds!(opt, [0.1, 0.001])
+		upper_bounds!(opt, [300, 1.])
+		#lower_bounds!(opt, [0.1, -10, 0, -50, 0, 0.05, -10, 0, -50, 0])
+		#upper_bounds!(opt, [300,  15, 1,  50, 1, 5,     15, 1,  50, 1.])
 		#ftol_rel!(opt, 1e-12) # tolerance |Δf|/|f|
 		ftol_abs!(opt, 1e-8) # tolerance |Δf|
 		min_objective!(opt, loss_nlopt) # specify objective function
@@ -267,12 +287,12 @@ if estimate_rates # run optimizer for MD estimation
 	end
 
 	# estimates
-	ζ = min_x[1:length(ζx_0)]
-	δ = min_x[end-length(ζd_0):end]
+	ζx = min_x[1:length(ζx_0)]
+	ζd = min_x[end-length(ζd_0)+1:end]
 
 	println("  > Done!")
-	println("ζ: $ζ") 
-	println("δ: $δ")
+	println("ζx: $ζx") 
+	println("ζd: $ζd")
 	println("Loss: $min_f")
 else # just use the initial guess
 	ζx = ζx_0
@@ -284,15 +304,6 @@ end # estimate_rates
 
 if compute_np_obj
 	println("  > Computing and saving non-parametric object estimates")
-
-	# precompute discount factors
-	d = compute_d(δ, ψm_ψf) # same function name for static and dynamic age
-	if ~static_age
-		c = compute_c(d)
-		c1 = compute_c1(c)
-	end
-
-	avg_production = zeros(d) # initialize
 
 	# save arrays (by MSA) in separate dicts, to be stored
 	alpha = Dict{AbstractString, Array}()
@@ -307,6 +318,15 @@ if compute_np_obj
 
 	ξ = build_ξ(ζx) # construct ξ
 	δ = build_δ(ζd) # construct ξ
+
+	# precompute discount factors
+	d = compute_d(δ, ψm_ψf) # same function name for static and dynamic age
+	if ~static_age
+		c = compute_c(d)
+		c1 = compute_c1(c)
+	end
+
+	avg_production = zeros(d) # initialize
 
 	for msa in top_msa
 		# U_m, U_f per marriage market
@@ -383,7 +403,7 @@ if compute_np_obj
 		for msa in top_msa
 			for idx in CartesianRange(size(d["$msa"]))
 				i = idx.I
-				push!(df, @data([25+i[1],i[2],i[3],25+i[4],i[5],i[6],msa,d["$msa"][idx]]))
+				push!(df, @data([min_age+i[1],i[2],i[3],min_age+i[4],i[5],i[6],msa,d["$msa"][idx]]))
 			end
 		end
 		return df
@@ -396,7 +416,7 @@ if compute_np_obj
 		for msa in top_msa
 			for idx in CartesianRange(size(d["$msa"]))
 				i = idx.I
-				push!(df, @data([25+i[1],i[2],i[3],msa,d["$msa"][idx]]))
+				push!(df, @data([min_age+i[1],i[2],i[3],msa,d["$msa"][idx]]))
 			end
 		end
 		return df

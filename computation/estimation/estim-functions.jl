@@ -4,7 +4,7 @@
 
 "Compute uniform arrival rate array from ζ[1]."
 function constant_rate(ζ::Vector)
-	return ζ[1] * ones(n_ages,2,2,n_ages,2,2)
+	return ζ[1] * ones(dim_mar)
 end
 
 # logistic pdf kernel, scaled to have peak of 1
@@ -13,7 +13,7 @@ logistic(x::Real; m=2.0, s=1/8) = 4 * exp(-(x-m)*s) / (1+exp(-(x-m)*s))^2
 "Compute bivariate logistic arrival rate array from parameter vector ζ."
 function logistic_rate(ζ::Vector)
 	# vector: logistic in age-gap with free mean
-	rt = Array{Float64}(n_ages,2,2,n_ages,2,2) # NOTE: n_ages excludes age 25
+	rt = Array{Float64}(dim_mar) # NOTE: n_ages excludes age 25
 	for a in 1:n_ages, b in 1:n_ages
 		rt[a,:,:,b,:,:] = ζ[1] * logistic(a-b; m=ζ[2], s=ζ[3]) * logistic((a+b)/2; m=ζ[4], s=ζ[5]) # varies in age gap AND combined age of couple
 		# ternary operator selects s based on sign of centered age gap
@@ -32,7 +32,7 @@ function interp_rate(ζ::Vector)
 	gap_knots = ([-39, -15, -2, 2, 6, 19, 39],)
 	gap_itp = Interpolations.interpolate(gap_knots, [ζ[5:7]..., 1, ζ[8:10]...], Interpolations.Gridded(Interpolations.Linear()))
 
-	rt = Array{Float64}(n_ages,2,2,n_ages,2,2) # NOTE: n_ages excludes age 25
+	rt = Array{Float64}(dim_mar) # NOTE: n_ages excludes age 25
 	for a in 1:n_ages, b in 1:n_ages
 		rt[a,:,:,b,:,:] = ζ[1] * age_itp[(a+b)/2] * gap_itp[a-b] # varies in age gap AND combined age of couple
 	end
@@ -142,7 +142,7 @@ end
 
 "Objective function to pass to NLopt: requires vectors for `x` and `grad`."
 function loss_nlopt(x::Vector, grad::Vector)
-	return sum(loss(x[1:length(ζx_0)], x[end-length(ζd_0):end],
+	return sum(loss(x[1:length(ζx_0)], x[end-length(ζd_0)+1:end],
 					ψm_ψf, marriages, sng_outer,
 					MF, men_DF, wom_DF,
 					men_tot, wom_tot, pop_outer))
@@ -150,7 +150,7 @@ end
 
 "Objective function to pass to BlackBoxOptim: requires vector for `x`."
 function loss_bbopt(x::Vector)
-	return sum(loss(x[1:length(ζx_0)], x[end-length(ζd_0):end],
+	return sum(loss(x[1:length(ζx_0)], x[end-length(ζd_0)+1:end],
 					ψm_ψf, marriages, sng_outer,
 					MF, men_DF, wom_DF,
 					men_tot, wom_tot, pop_outer))
@@ -162,7 +162,8 @@ function obj_landscaper(ζx1::Real, zx2g, zx3g, zx4g, zx5g, zd1g, zd2g, zd3g, zd
 						men_tot, wom_tot, pop_outer)
 	res = "" # results string
 	#for δ in dg
-	for ζx2 in zx2g, ζx3 in zx3g, ζx4 in zx4g, ζx5 in zx5g, ζd1 in zd1g, ζd2 in zd2g, ζd3 in zd3g, ζd4 in zd4g, ζd5 in zd5g
+	for ζx2 in zx2g, ζx3 in zx3g, ζx4 in zx4g, ζx5 in zx5g,
+		ζd1 in zd1g, ζd2 in zd2g, ζd3 in zd3g, ζd4 in zd4g, ζd5 in zd5g
 		lMF, lDF = loss([ζx1, ζx2, ζx3, ζx4, ζx5],
 						[ζd1, ζd2, ζd3, ζd4, ζd5],
 						ψm_ψf, marriages, sng_outer, MF, men_DF, wom_DF, men_tot, wom_tot, pop_outer)
