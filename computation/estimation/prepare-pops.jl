@@ -51,6 +51,21 @@ function outer_op(op::Function, men::Array, wom::Array)
 	return out
 end
 
+"Load data, aggregating out unwanted types."
+function loader(a)
+	if no_school
+		if length(size(a)) == 3
+			out = sum(a, 2)
+		elseif length(size(a)) == 6
+			out = sum(a, (2,5))
+		end
+	else
+		out = a
+	end
+	return out
+end
+
+
 # load up smoothed masses from csv
 df_men_sng = readtable("data/men-single.csv")
 df_wom_sng = readtable("data/wom-single.csv")
@@ -78,62 +93,62 @@ wom_DF = Dict{AbstractString, Array}()
 
 for msa in top_msa
 	# annual population arrays (NOTE: includes age 25)
-	men_sng["$msa"] = indiv_array(@from i in df_men_sng begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
-                                  @collect DataFrame
-                                  end) / n_years
+	men_sng["$msa"] = loader(indiv_array(@from i in df_men_sng begin
+											 @where i.MSA == msa
+											 @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
+											 @collect DataFrame
+										 end) / n_years)
 
-	wom_sng["$msa"] = indiv_array(@from i in df_wom_sng begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                  @collect DataFrame
-                                  end) / n_years
+	wom_sng["$msa"] = loader(indiv_array(@from i in df_wom_sng begin
+											 @where i.MSA == msa
+											 @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
+											 @collect DataFrame
+										 end) / n_years)
 
-	men_tot["$msa"] = indiv_array(@from i in df_men_tot begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
-                                  @collect DataFrame
-                                  end) / n_years
+	men_tot["$msa"] = loader(indiv_array(@from i in df_men_tot begin
+											 @where i.MSA == msa
+											 @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
+											 @collect DataFrame
+										 end) / n_years)
 
-	wom_tot["$msa"] = indiv_array(@from i in df_wom_tot begin
-                                  @where i.MSA == msa
-                                  @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                  @collect DataFrame
-                                  end) / n_years
+	wom_tot["$msa"] = loader(indiv_array(@from i in df_wom_tot begin
+											 @where i.MSA == msa
+											 @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
+											 @collect DataFrame
+										 end) / n_years)
 
-	marriages["$msa"] = marr_array(@from i in df_marriages begin
-                                   @where i.MSA == msa
-                                   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-                                   @collect DataFrame
-                                   end) / n_years
+	marriages["$msa"] = loader(marr_array(@from i in df_marriages begin
+											  @where i.MSA == msa
+											  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
+											  @collect DataFrame
+										  end) / n_years)
 
 	sng_outer["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
 	pop_outer["$msa"] = outer_op(*, men_tot["$msa"], wom_tot["$msa"])
 
 	# annual flow arrays
-	MF["$msa"] = marr_array(@from i in df_MF begin
-							@where i.MSA == msa
-							@select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.FLOW}
-							@collect DataFrame
-							end) / n_years
+	MF["$msa"] = loader(marr_array(@from i in df_MF begin
+									   @where i.MSA == msa
+									   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.FLOW}
+									   @collect DataFrame
+								   end) / n_years)
 
-	men_DF["$msa"] = indiv_array(@from i in df_men_DF begin
-                                 @where i.MSA == msa
-                                 @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-                                 @collect DataFrame
-                                 end) / n_years
+	men_DF["$msa"] = loader(indiv_array(@from i in df_men_DF begin
+											@where i.MSA == msa
+											@select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
+											@collect DataFrame
+										end) / n_years)
 
-	wom_DF["$msa"] = indiv_array(@from i in df_wom_DF begin
-                                 @where i.MSA == msa
-                                 @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-                                 @collect DataFrame
-                                 end) / n_years
+	wom_DF["$msa"] = loader(indiv_array(@from i in df_wom_DF begin
+											@where i.MSA == msa
+											@select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
+											@collect DataFrame
+										end) / n_years)
 end
 
 # load death arrival rates
-ψ_m = indiv_array(readtable("results/men-psi.csv"))
-ψ_f = indiv_array(readtable("results/wom-psi.csv"))
+ψ_m = loader(indiv_array(readtable("results/men-psi.csv")))
+ψ_f = loader(indiv_array(readtable("results/wom-psi.csv")))
 ψm_ψf = outer_op(+, ψ_m, ψ_f) # array of ψ_m(x) + ψ_f(y)
 
 # store in JLD format
