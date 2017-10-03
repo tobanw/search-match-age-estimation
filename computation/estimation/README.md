@@ -3,6 +3,9 @@
 ## Prepare ACS data
 
 Use `csv2sqlite.py` to save the raw csv.gz data file into an sqlite database.
+* `acs`: table from ACS microdata
+* `migtopuma`: table to convert migration state/puma to puma
+* `pumatomet`: table to convert puma to metro
 Then use SQL queries to get aggregated values to avoid loading the entire dataset into memory.
 Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean the data.
 
