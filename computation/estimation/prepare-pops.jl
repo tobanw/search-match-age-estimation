@@ -7,8 +7,8 @@ using DataFrames, Query
 
 "Construct and fill array for individual values in one marriage	market."
 function indiv_array(val_dt::DataFrame)
-    # instantiate empty array: age, edu, race
-	valarray = Array{Float64}(n_ages+1,2,2) # include age 25 for inflows
+    # instantiate array of zeros to fill: age, edu, race
+	valarray = zeros(n_ages+1,2,2) # include age 25 for inflows
 
     # fill counts
 	rowidx = Array{Int64}(3) # initialize empty vector for reuse
@@ -25,8 +25,8 @@ end # indiv_array
 "Construct and fill array for couple masses in one marriage	market."
 function marr_array(counts::DataFrame)
 	# assumes counts has 3+3 type cols plus masses (no MSA or other cols)
-    # instantiate empty array
-	massarray = Array{Float64}(n_ages+1,2,2,n_ages+1,2,2) # include age 25 for inflows
+    # instantiate array of zeros to fill
+	massarray = zeros(n_ages+1,2,2,n_ages+1,2,2) # include age 25 for inflows
 
     # fill counts
 	rowidx = Array{Int64}(6) # initialize empty vector for reuse
@@ -81,11 +81,9 @@ end
 
 
 # load up smoothed masses from csv
-df_men_sng = readtable("data/men-single.csv")
-df_wom_sng = readtable("data/wom-single.csv")
-df_men_tot = readtable("data/men-total.csv")
-df_wom_tot = readtable("data/wom-total.csv")
-df_marriages = readtable("data/marriages.csv")
+df_pop = readtable("data/ageonly/pop.csv")
+df_marriages = readtable("data/ageonly/marriages.csv")
+df_migration = readtable("data/ageonly/mar-migration.csv")
 
 # save arrays (by MSA) in separate dicts, to be stored
 men_sng = Dict{AbstractString, Array}()
@@ -93,13 +91,13 @@ wom_sng = Dict{AbstractString, Array}()
 men_tot = Dict{AbstractString, Array}()
 wom_tot = Dict{AbstractString, Array}()
 marriages = Dict{AbstractString, Array}()
+mar_outflow = Dict{AbstractString, Array}()
 sng_outer = Dict{AbstractString, Array}() # u_m(x)*u_f(y) arrays
 pop_outer = Dict{AbstractString, Array}() # ℓ_m(x)*ℓ_f(y) arrays
 
 # load up flows for rate parameter estimation
-df_MF = readtable("data/pair-MF.csv")
-df_men_DF = readtable("data/men-DF.csv")
-df_wom_DF = readtable("data/wom-DF.csv")
+df_MF = readtable("data/ageonly/pair-MF.csv")
+df_DF = readtable("data/ageonly/ind-DF.csv")
 
 MF = Dict{AbstractString, Array}()
 men_DF = Dict{AbstractString, Array}()
@@ -107,35 +105,41 @@ wom_DF = Dict{AbstractString, Array}()
 
 for msa in top_msa
 	# annual population arrays (NOTE: includes age 25)
-	men_sng["$msa"] = loader(indiv_array(@from i in df_men_sng begin
-											 @where i.MSA == msa
-											 @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
+	men_sng["$msa"] = loader(indiv_array(@from i in df_pop begin
+											 @where i.MSA == msa && i.SEX == 1
+											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.SNG}
 											 @collect DataFrame
-										 end) / n_years)
+										 end))
 
-	wom_sng["$msa"] = loader(indiv_array(@from i in df_wom_sng begin
-											 @where i.MSA == msa
-											 @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
+	wom_sng["$msa"] = loader(indiv_array(@from i in df_pop begin
+											 @where i.MSA == msa && i.SEX == 2
+											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.SNG}
 											 @collect DataFrame
-										 end) / n_years)
+										 end))
 
-	men_tot["$msa"] = loader(indiv_array(@from i in df_men_tot begin
-											 @where i.MSA == msa
-											 @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.MASS}
+	men_tot["$msa"] = loader(indiv_array(@from i in df_pop begin
+											 @where i.MSA == msa && i.SEX == 1
+											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.POP}
 											 @collect DataFrame
-										 end) / n_years)
+										 end))
 
-	wom_tot["$msa"] = loader(indiv_array(@from i in df_wom_tot begin
-											 @where i.MSA == msa
-											 @select {i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
+	wom_tot["$msa"] = loader(indiv_array(@from i in df_pop begin
+											 @where i.MSA == msa && i.SEX == 2
+											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.POP}
 											 @collect DataFrame
-										 end) / n_years)
+										 end))
 
 	marriages["$msa"] = loader(marr_array(@from i in df_marriages begin
 											  @where i.MSA == msa
 											  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
 											  @collect DataFrame
-										  end) / n_years)
+										  end))
+
+	mar_outflow["$msa"] = loader(marr_array(@from i in df_migration begin
+												@where i.MSA == msa
+												@select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.NET_OUTFLOW}
+												@collect DataFrame
+										  end))
 
 	sng_outer["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
 	pop_outer["$msa"] = outer_op(*, men_tot["$msa"], wom_tot["$msa"])
@@ -145,28 +149,28 @@ for msa in top_msa
 									   @where i.MSA == msa
 									   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.FLOW}
 									   @collect DataFrame
-								   end) / n_years)
+								   end))
 
-	men_DF["$msa"] = loader(indiv_array(@from i in df_men_DF begin
-											@where i.MSA == msa
+	men_DF["$msa"] = loader(indiv_array(@from i in df_DF begin
+											@where i.MSA == msa && i.SEX == 1
 											@select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
 											@collect DataFrame
-										end) / n_years)
+										end))
 
-	wom_DF["$msa"] = loader(indiv_array(@from i in df_wom_DF begin
-											@where i.MSA == msa
+	wom_DF["$msa"] = loader(indiv_array(@from i in df_DF begin
+											@where i.MSA == msa && i.SEX == 2
 											@select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
 											@collect DataFrame
-										end) / n_years)
+										end))
 end
 
 # load death arrival rates
-ψ_m = loader(indiv_array(readtable("results/men-psi.csv")))
-ψ_f = loader(indiv_array(readtable("results/wom-psi.csv")))
+ψ_m = loader(indiv_array(readtable("data/ageonly/men-psi.csv")))
+ψ_f = loader(indiv_array(readtable("data/ageonly/wom-psi.csv")))
 ψm_ψf = outer_op(+, ψ_m, ψ_f) # array of ψ_m(x) + ψ_f(y)
 
 # store in JLD format
-jldopen("results/populations.jld", "w") do file  # open file for saving julia data
+jldopen("results/populations-ageonly.jld", "w") do file  # open file for saving julia data
 	# arrays: death arrival rates (includes age 25)
 	write(file, "men_psi", ψ_m)
 	write(file, "wom_psi", ψ_f)
@@ -178,6 +182,7 @@ jldopen("results/populations.jld", "w") do file  # open file for saving julia da
     write(file, "men_tot", men_tot)
     write(file, "wom_tot", wom_tot)
     write(file, "marriages", marriages)
+    write(file, "mar_outflow", mar_outflow)
     write(file, "sng_outer", sng_outer)
     write(file, "pop_outer", pop_outer)
 

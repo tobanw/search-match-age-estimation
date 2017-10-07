@@ -14,9 +14,9 @@ logistic_delta = false
 
 # what to run?
 reload_smooth = false # set true to reload the smoothed population csv files, otherwise use saved JLD
-grid_search = false
-estimate_rates = false # set true to run GMM estimation, otherwise just use ζx_0, ζd_0 below
-compute_np_obj = false
+grid_search = true # NOTE: need to manually set grids and modify `obj_landscaper` per model
+estimate_rates = true # set true to run GMM estimation, otherwise just use ζx_0, ζd_0 below
+compute_np_obj = true
 
 # select optimizer for arrival rate estimation
 use_nlopt = true
@@ -48,9 +48,9 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 
 	# NOTE: must match `max.age` from `smooth-pop.r` and mortality data
 	const max_age = 65 # terminal age (inclusive)
-	const min_age = 25 # initial age (excluded)
+	const min_age = 18 # initial age (excluded)
 	const n_ages = max_age - min_age # excluding 25
-	const n_years = 7 # 2008-2014
+	const n_years = 8 # 2008-2015
 
 	# NOTE: must match `top.msa` from `smooth-pop.r` and `smooth-flows.r`
 	const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460,
@@ -82,7 +82,7 @@ end
 
 @everywhere begin # load on all process in case running parallel
 	# load saved data as dict
-	pp = JLD.load("results/populations.jld")
+	pp = JLD.load("results/populations-ageonly.jld")
 
 
 	# load and trim age 25 from psi, summing out edu
@@ -96,6 +96,7 @@ end
 	men_tot = pp["men_tot"]
 	wom_tot = pp["wom_tot"]
 	marriages = pp["marriages"]
+	mar_outflow = pp["mar_outflow"]
 	sng_outer = pp["sng_outer"]
 	pop_outer = pp["pop_outer"]
 
@@ -171,15 +172,15 @@ Loss: 823.26
 
 *** Dynamic model estimates ***
 
-Uniform ξ,δ (vs age-only):
-ξ: 0.797566 (0.559535)
-δ: 0.025083746441886164 (0.029261)
-Loss: 1301.47469321623 (31610.74737124891)
+Uniform ξ,δ (vs age-only 08-15):
+ξ: 0.797566 (0.816589)
+δ: 0.025083746441886164 (0.0247069)
+Loss: 1301.47469321623 (45247.2472546416)
 
-Logistic ξ,δ (symmetric 5 param, but only x1,x3,d1,d5 are free):
-ζx_0: [1.61508, 2, 0.283235, 0, 0]
-ζd_0: [0.047462, 2, 0, 0, 0, 0.0682615]
-Loss: 984.5798779676335
+Logistic ξ,δ (symmetric 5 param, but only x1,x3,d1,d5 are free) (vs age-only):
+ζx_0: [1.61508, 2, 0.283235, 0, 0] ([1.10436, 2, 0.000192278, 0, 0])
+ζd_0: [0.047462, 2, 0, 0, 0.0682615] ([0.0338854, 2, 0, 0, 0.0582711])
+Loss: 984.5798779676335 (28901.21320680169)
 
 Interpolated ξ:
 ζ: [6.70401, 0.288831, 0.0849464, 0.0212671, 0.001, 0.0162982, 0.775318, 0.667261, 0.0122603, 0.0126533]
@@ -187,8 +188,8 @@ Interpolated ξ:
 Loss: 1193.6704652231151
 """
 
-ζx_0 = [1.10437]
-ζd_0 = [0.03388]
+ζx_0 = [0.9]
+ζd_0 = [0.025]
 
 
 ### ESTIMATION ###
@@ -203,17 +204,17 @@ if grid_search
 	# with double interpolation, ran slower: 140k/hour (probably because interpolators are constructed inside the function)
 
 	# logistic: ζ = [c,m,s1,s2] (age-gap) + [m,s] (avg age)
-	ζx1grid = linspace(1, 1.6, 16) # (global multiplicative scale-factor for λ)
-	ζx2grid = [2] #linspace(0., 4., 4) # (mean for age-gap meeting slowdown)
-	ζx3grid = linspace(0.15, 0.35, 8) # (1/spread for age-gap meeting slowdown)
-	ζx4grid = [0] #linspace(10., 70., 5) # (mean for avg age search slowdown)
-	ζx5grid = [0] #linspace(0, 0.08, 3) # (1/spread for avg age search slowdown)
+	ζx1grid = linspace(0.3, 1.5, 32) # (global multiplicative scale-factor for λ)
+	#ζx2grid = [2] #linspace(0., 4., 4) # (mean for age-gap meeting slowdown)
+	#ζx3grid = linspace(0.15, 0.35, 8) # (1/spread for age-gap meeting slowdown)
+	#ζx4grid = [0] #linspace(10., 70., 5) # (mean for avg age search slowdown)
+	#ζx5grid = [0] #linspace(0, 0.08, 3) # (1/spread for avg age search slowdown)
 
-	ζd1grid = linspace(0.035, 0.06, 12) # (global multiplicative scale-factor for δ)
-	ζd2grid = [2] #linspace(0., 4., 4) # (mean for age-gap slowdown)
-	ζd3grid = [0] #linspace(0, 0.3, 4) # (1/spread for age-gap slowdown)
-	ζd4grid = [0] #linspace(-12, 0, 8) # (mean for avg age slowdown)
-	ζd5grid = linspace(0.05, 0.09, 10) # (1/spread for avg age slowdown)
+	ζd1grid = linspace(0.01, 0.06, 96) # (global multiplicative scale-factor for δ)
+	#ζd2grid = [2] #linspace(0., 4., 4) # (mean for age-gap slowdown)
+	#ζd3grid = [0] #linspace(0, 0.3, 4) # (1/spread for age-gap slowdown)
+	#ζd4grid = [0] #linspace(-12, 0, 8) # (mean for avg age slowdown)
+	#ζd5grid = linspace(0.05, 0.09, 10) # (1/spread for avg age slowdown)
 
 	"""
 	# interpolations: ζ2-ζ4 avg age knots, ζ5-ζ7 age gap knots
@@ -232,17 +233,17 @@ if grid_search
 	"""
 
 	# list of jobs: for each ζ1
-	gs_jobs = [(@spawn obj_landscaper(ζx1, ζx2grid, ζx3grid, ζx4grid, ζx5grid,
-									  ζd1grid, ζd2grid, ζd3grid, ζd4grid, ζd5grid,
-									  ψm_ψf, marriages, sng_outer, MF, men_DF, wom_DF,
+	gs_jobs = [(@spawn obj_landscaper(ζx1,# ζx2grid, ζx3grid, ζx4grid, ζx5grid,
+									  ζd1grid,# ζd2grid, ζd3grid, ζd4grid, ζd5grid,
+									  ψm_ψf, marriages, sng_outer, mar_outflow, MF, men_DF, wom_DF,
 									  men_tot, wom_tot, pop_outer)) for ζx1 in ζx1grid]
 
 	result_list = [fetch(job) for job in gs_jobs] # list of strings
 	result_str = join(result_list) # merge into single string
 
 	open("results/loss-function/loss-grid.csv", "w") do f
-		write(f, "ζx1,ζx2,ζx3,ζx4,ζx5,ζd1,ζd2,ζd3,ζd4,ζd5,LOSS_MF,LOSS_DF,LOSS\n")
-		#write(f, "ζ1,δ,LOSS_MF,LOSS_DF,LOSS\n")
+		#write(f, "ζx1,ζx2,ζx3,ζx4,ζx5,ζd1,ζd2,ζd3,ζd4,ζd5,LOSS_MF,LOSS_DF,LOSS\n")
+		write(f, "ξ,δ,LOSS_MF,LOSS_DF,LOSS\n")
 		write(f, result_str)
 	end # write to file
 end # grid_search
@@ -261,7 +262,7 @@ if estimate_rates # run optimizer for MD estimation
 		#population!(opt, 256) # default is 10*(n+1)
 		#lower_bounds!(opt, 0.1 * [ζx_0..., ζd_0...]) # band around initial guess
 		#upper_bounds!(opt, 10 * [ζx_0..., ζd_0...]) # band around initial guess
-		lower_bounds!(opt, [0.1, 0])
+		lower_bounds!(opt, [0.01, 0])
 		upper_bounds!(opt, [30, 1.])
 		#lower_bounds!(opt, [0.1, -10, 0, -50, 0, 0.05, -10, 0, -50, 0])
 		#upper_bounds!(opt, [300,  15, 1,  50, 1, 5,     15, 1,  50, 1.])
@@ -336,13 +337,16 @@ if compute_np_obj
 		λ = ξ / sqrt(sum(men_sng["$msa"]) * sum(wom_sng["$msa"]))
 
 		# match probability (α)
-		alpha["$msa"] = compute_alpha(λ, δ, ψm_ψf, marriages["$msa"], sng_outer["$msa"][2:end,:,:,2:end,:,:])
+		alpha_raw["$msa"] = compute_raw_alpha(λ, δ, ψm_ψf, marriages["$msa"],
+									  sng_outer["$msa"][2:end,:,:,2:end,:,:],
+									  mar_outflow["$msa"][2:end,:,:,2:end,:,:])
 
-		# non-truncated α
-		alpha_raw["$msa"] = compute_raw_alpha(λ, δ, ψm_ψf, marriages["$msa"], sng_outer["$msa"][2:end,:,:,2:end,:,:])
+		# truncated α
+		alpha["$msa"] = clamp.(alpha_raw["$msa"], 1e-3, 1 - 1e-3) # enforce 0 < α < 1
 
 		mMF["$msa"], mDF_m["$msa"], mDF_f["$msa"] = model_moments(λ, δ, ψm_ψf, marriages["$msa"],
-																  sng_outer["$msa"][2:end,:,:,2:end,:,:])
+																  sng_outer["$msa"][2:end,:,:,2:end,:,:],
+																  mar_outflow["$msa"][2:end,:,:,2:end,:,:])
 
 		if static_age
 			# marital surplus (S)

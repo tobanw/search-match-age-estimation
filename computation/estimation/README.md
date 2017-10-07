@@ -4,20 +4,21 @@
 
 Use `csv2sqlite.py` to save the raw csv.gz data file into an sqlite database.
 * `acs`: table from ACS microdata
-* `migtopuma`: table to convert migration state/puma to puma
-* `pumatomet`: table to convert puma to metro
+* `mig2met`: table to convert migration state/puma to puma
+	* run `data-prep.r` to build the csv from the two csv files mapping puma and msa
+	* then load it into the sqlite database as another table
 Then use SQL queries to get aggregated values to avoid loading the entire dataset into memory.
 Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean the data.
 
 ## Estimation of model objects
 
-* set up data:
-	* `smooth-pops.R`: query and smooth aggregated population counts in each desired metro
-	* `smooth-flows.R`: query and smooth data moments
-	* Smoothing by non-parametric regression (local-linear)
-	* Saves smoothed data to csv for loading into `julia`
-	* `mort-rates.R`: interpolates and saves death rates
-	* `prepare-pops.jl`: load above csv files, then convert DataFrames to multidimensional arrays (per metro) and saves as JLD files
+* set up data: check these files for correct filenames per model (different specifications by age and type)
+	* `smooth-pops.r`: query and smooth aggregated population counts in each desired metro
+		* Total/single/married populations, marriage/divorce flows, migration flows
+		* Smoothing by non-parametric regression (local-linear): CV bandwidth takes ~7h
+		* Saves smoothed data to csv for loading into `julia`
+	* `mort-rates.r`: interpolates and saves death rates
+	* `prepare-pops.jl`: loads above csv files, then convert DataFrames to multidimensional arrays (per metro) and saves as JLD files
 * `main-estim.jl`: runs the show, but need to set options first
 	* loads populations from saved JLD files, or calls `prepare-pops.jl` to generate them anew
 	* estimate arrival rates and then non-parametric objects using `estim-functions.jl` and `compute-npobj.jl`
@@ -50,7 +51,7 @@ Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean th
 
 ## (Deprecated) Estimation of rate parameters by OLS
 
-* `estimate-rates-full.R` and `estimate-rates.R`
+* `estimate-rates-full.r` and `estimate-rates.r`
 	* very poor accuracy due to noisy inference on divorce flows
 * Need marriage and divorce rates for each couple-type (globally)
 	* Marriage rate (directly observable): SQL queries for flows and stocks to compute rates

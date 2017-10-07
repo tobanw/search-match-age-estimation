@@ -27,12 +27,12 @@ end
 ### Estimation Functions ###
 
 "Compute α for a given MSA."
-function compute_raw_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array)
+function compute_raw_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array, mar_out::Array)
 	# trim off age 25
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 
 	# fast vectorized version
-	α = (m .* (δ + ψm_ψf)) ./ (λ .* um_uf + δ .* m)
+	α = (m .* (δ + ψm_ψf) + mar_out) ./ (λ .* um_uf + δ .* m)
 	return α # raw array may not lie within [0,1]
 end
 
