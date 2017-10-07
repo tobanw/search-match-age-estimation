@@ -64,20 +64,20 @@ end
 ### Estimation Functions ###
 
 "Compute raw α for a given MSA."
-function compute_raw_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array)
+function compute_raw_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array, mar_out::Array)
 	# trim off age 25, but use it for boundary inflows
 	m = mar_init[2:end,:,:,2:end,:,:] # mar_init[i] == mar[i-1] along the age dims
 
 	# alpha numerator: outflows(aging, divorce, death) - inflow(aging)
 
-	# fast array operation to build interior (boundary to be overwritten)
-	α = (m .* (ρ + δ + ψm_ψf) - ρ * mar_init[1:end-1,:,:,1:end-1,:,:])
+	# fast array operation to build interior (boundary to be adjusted)
+	α = m .* (ρ + δ + ψm_ψf) + mar_out - ρ * mar_init[1:end-1,:,:,1:end-1,:,:]
 	
 	# boundary edges: add term to inflows (no change to outflows)
 	α[end,:,:,:,:,:] -= ρ * mar_init[end,:,:,1:end-1,:,:] # (T,b) case
 	α[:,:,:,end,:,:] -= ρ * mar_init[1:end-1,:,:,end,:,:] # (a,T) case
 	
-	# (T,T) case: no outflows from aging (inflows captured by above boundary edge adjustments)
+	# (T,T) case: no outflows from aging (2 extra boundary inflows captured by above boundary edge adjustments)
 	α[end,:,:,end,:,:] -= ρ * m[end,:,:,end,:,:] # remove outflow, absorbing state
 
 	# divide by denominator

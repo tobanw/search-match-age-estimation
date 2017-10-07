@@ -7,7 +7,7 @@ h_mc(x::Vector, y::Vector) = 1 - (x[1]-y[1])^2 - 0.3*abs(x[2]-y[2]) - 0.2*abs(x[
 
 edutypes = no_edu?[1]:[1,2]
 ractypes = no_race?[1]:[1,2]
-θ_mc = Vector[collect(linspace(0,1,40)), edutypes, ractypes] # types: age, college, minority
+θ_mc = Vector[collect(linspace(0,1,n_ages)), edutypes, ractypes] # types: age, college, minority
 
 "Outer operation function for population measures and ψ."
 function outer_op(op::Function, men::Array, wom::Array)
