@@ -79,11 +79,12 @@ function loader(a)
 	return out
 end
 
+# Set `data_dir` in main-estim.jl
 
 # load up smoothed masses from csv
-df_pop = readtable("data/ageonly/pop.csv")
-df_marriages = readtable("data/ageonly/marriages.csv")
-df_migration = readtable("data/ageonly/mar-migration.csv")
+df_pop = readtable(joinpath(data_dir, "pop.csv"))
+df_marriages = readtable(joinpath(data_dir, "marriages.csv"))
+df_migration = readtable(joinpath(data_dir, "mar-migration.csv"))
 
 # save arrays (by MSA) in separate dicts, to be stored
 men_sng = Dict{AbstractString, Array}()
@@ -96,8 +97,8 @@ sng_outer = Dict{AbstractString, Array}() # u_m(x)*u_f(y) arrays
 pop_outer = Dict{AbstractString, Array}() # ℓ_m(x)*ℓ_f(y) arrays
 
 # load up flows for rate parameter estimation
-df_MF = readtable("data/ageonly/pair-MF.csv")
-df_DF = readtable("data/ageonly/ind-DF.csv")
+df_MF = readtable(joinpath(data_dir, "pair-MF.csv"))
+df_DF = readtable(joinpath(data_dir, "ind-DF.csv"))
 
 MF = Dict{AbstractString, Array}()
 men_DF = Dict{AbstractString, Array}()
@@ -165,8 +166,8 @@ for msa in top_msa
 end
 
 # load death arrival rates
-ψ_m = loader(indiv_array(readtable("data/ageonly/men-psi.csv")))
-ψ_f = loader(indiv_array(readtable("data/ageonly/wom-psi.csv")))
+ψ_m = loader(indiv_array(readtable(joinpath(data_dir, "men-psi.csv"))))
+ψ_f = loader(indiv_array(readtable(joinpath(data_dir, "wom-psi.csv"))))
 ψm_ψf = outer_op(+, ψ_m, ψ_f) # array of ψ_m(x) + ψ_f(y)
 
 # store in JLD format

@@ -140,7 +140,9 @@ function loss(ζx::Vector, ζd::Vector, ψm_ψf::Array,
 	# Verbose progress indicator 
 	#println(@sprintf("sse: %.5e, δ: %.3g, ζ: ", sse, δ), ζ)
 
-	return loss_MF, loss_DF
+	# FIXME: testing different weighting of MF vs DF (because of identification problems for xi)
+	return 2*loss_MF, loss_DF
+	#return loss_MF, loss_DF
 end
 
 "Objective function to pass to NLopt: requires vectors for `x` and `grad`."

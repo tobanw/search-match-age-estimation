@@ -2,7 +2,7 @@
 
 # Order of traits: husband then wife; age, edu, race
 # Notation: husband gets _SP suffix, wife is default
-# Min age is 25 because of endogeneity of college
+# Min age with edu is 25 because of endogeneity of college
 # ACS data: 2008-2015, ages 18-79 (note: AGE_SP is not limited).
 
 library(DBI) # RSQLite database functions
@@ -12,15 +12,21 @@ library(np) # non-parametric regression
 
 ### Usage Options ###
 
+out.dir <- "data/ageonly16-13/"
+
 # use edu and race as types? modify output filename at bottom
 #	strategy: keep redundant types for compat
 static.types <- FALSE
 
 # choose what bandwidth to use for ages in marriages and for individuals
-marr.bw <- FALSE # set to FALSE to use bw=cv.aic
-indiv.bw <- FALSE # set to FALSE to use bw=cv.aic
+mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
+ind.bw.cv <- TRUE # set to TRUE to use bw=cv.aic
 
-age.bw <- 3 # bw to use for manual age smoothing
+# bws to use for manual age smoothing
+ind.bw <- 1.0
+pop.bw <- matrix(c(16, 13, 13, 16), nrow = 2, ncol = 2)
+flow.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
+mig.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
 
 # connect to sqlite database
 # table names: acs, mig2met
@@ -217,7 +223,10 @@ mar.mig[, NET_OUTFLOW_RAW := OUTFLOW_RAW - INFLOW_RAW]
 
 # npregbw cv methods give following bandwidths on age per msa
 #	* wom.sng: 2.2
-#	* marriages (split sample): 0.5 for each age (3 hour runtime)
+#	* marriages (cv.aic: split sample): (3 hour runtime)
+#		* alpha comes out way too bumpy with cv.aic, because of the first differencing
+#		* NYC: (0.78,0.77); Chi-town: (0.764,0.75); SF: (0.8,0.8); 
+#		* playing with manual bw: 1.5 still oddly lumpy
 #	* marriages (product kernel): takes >24h for 1/5 starts... aborted
 
 # convert categorical variables to factors for npreg
@@ -228,19 +237,7 @@ for (col in c(husb.mrg, wife.mrg)) set(marriages, j = col, value = factor(marria
 for (col in c(husb.mrg, wife.mrg)) set(mar.flow, j = col, value = factor(mar.flow[[col]]))
 for (col in c(husb.mrg, wife.mrg)) set(mar.mig, j = col, value = factor(mar.mig[[col]]))
 
-if (indiv.bw) {
-	# manual smoothing with sample splitting
-	pop.dt[, `:=`(SNG = predict(npreg(bws=age.bw, txdat=AGE, tydat=RAW_SNG, regtype="ll")),
-				  POP = predict(npreg(bws=age.bw, txdat=AGE, tydat=RAW_POP, regtype="ll"))),
-			by = c("MSA", "SEX", ind.mrg)] # typically use list for `by`, but need vector here to join
-
-	div.flow[, FLOW := predict(npreg(bws=age.bw,
-									 txdat=AGE, tydat=RAW_DF, regtype="ll")),
-			   by = c("MSA", "SEX", ind.mrg)]
-
-	ind.mig[, NET_OUTFLOW := predict(npreg(bws=age.bw, txdat=AGE, tydat=NET_OUTFLOW_RAW, regtype="ll")),
-			by = c("MSA", "SEX", ind.mrg)]
-} else {
+if (ind.bw.cv) {
 	# cross-validated bandwidth (product kernel)
 	pop.dt[, `:=`(SNG = predict(npreg(bws=npregbw(formula = RAW_SNG ~ AGE,
 												  regtype="ll",
@@ -264,6 +261,17 @@ if (indiv.bw) {
 													   bwmethod="cv.aic",
 													   data=.SD))),
 			 by = c("MSA", "SEX", ind.mrg)]
+} else {
+	# manual smoothing with sample splitting
+	pop.dt[, `:=`(SNG = predict(npreg(bws=ind.bw, txdat=AGE, tydat=RAW_SNG, regtype="ll")),
+				  POP = predict(npreg(bws=ind.bw, txdat=AGE, tydat=RAW_POP, regtype="ll"))),
+			by = c("MSA", "SEX", ind.mrg)] # typically use list for `by`, but need vector here to join
+
+	div.flow[, FLOW := predict(npreg(bws=ind.bw, txdat=AGE, tydat=RAW_DF, regtype="ll")),
+			   by = c("MSA", "SEX", ind.mrg)]
+
+	ind.mig[, NET_OUTFLOW := predict(npreg(bws=ind.bw, txdat=AGE, tydat=NET_OUTFLOW_RAW, regtype="ll")),
+			by = c("MSA", "SEX", ind.mrg)]
 }
 
 ## combine groups with age >= max.age (truncation at T)
@@ -298,23 +306,59 @@ ind.mig <- merge(ind.mig[AGE < max.age], trm.ind.mig,
 
 print("Starting non-parametric regression on couple masses.")
 
-if (marr.bw) {
-	# manual smoothing with sample splitting
-	marriages[, MASS := predict(npreg(bws=c(age.bw, age.bw),
-									  txdat=.(AGE_M, AGE_F), tydat=RAW_MASS,
-									  regtype="ll")),
-			   by = c("MSA", husb.mrg, wife.mrg)]
+## Hand-rolled bivariate local-linear regression with unconstrained bandwidth matrix
+# allows for diagonal orientation of kernel, to smooth more along joint aging diagonal
 
-	mar.flow[, FLOW := predict(npreg(bws=c(age.bw, age.bw),
-									 txdat=.(AGE_M, AGE_F), tydat=RAW_MF,
-									 regtype="ll")),
-			  by = c("MSA", husb.mrg, wife.mrg)]
+# inverse function for positive definite matrices
+matrix.inv <- function(A) {chol2inv(chol(A))}
 
-	mar.mig[, NET_OUTFLOW := predict(npreg(bws=c(age.bw, age.bw),
-										   txdat=.(AGE_M, AGE_F), tydat=NET_OUTFLOW_RAW,
-										   regtype="ll")),
-		     by = c("MSA", husb.mrg, wife.mrg)]
-} else {
+# matrix sqrt function
+matrix.sqrt <- function(A) {
+    if (length(A)==1)
+        return(sqrt(A))
+    sva <- svd(A)
+    if (min(sva$d)>=0)
+        Asqrt <- sva$u %*% diag(sqrt(sva$d)) %*% t(sva$v)
+    else
+        stop("Matrix square root is not defined")
+  return(Asqrt)
+}
+
+# standard bivariate normal density function
+K <- function(x) {
+	# x: nx2 matrix
+	return(1.0/(2*pi) * exp(-0.5 * rowSums(x^2)))
+}
+
+# bivariate kernel with unrestricted bandwidth matrix
+K.H <- function(x, y, H) {
+	# x,y: vectors
+    Hinv12 <- matrix.sqrt(matrix.inv(H))
+    z <- cbind(x, y)
+    return(1.0/sqrt(det(H)) * K(z %*% t(Hinv12)))
+}
+
+# local-cubic bivariate regression
+loc.poly.reg <- function(x, y, z, H) {
+    # x,y: domain vectors; z: value vector; H: bandwidth matrix
+    n <- length(z)
+    smth <- vector(length = n) # empty vector for smoothed z values
+    
+    # for each row: get kernel weights for all datapoints
+    for (i in 1:n) {
+        X <- cbind(1, x - x[i], y - y[i],
+				   (x - x[i])^2, (y - y[i])^2, (x - x[i])*(y - y[i]),
+				   (x - x[i])^3, (y - y[i])^3, (x - x[i])^2*(y - y[i]), (x - x[i])*(y - y[i])^2)
+        W <- K.H(x - x[i], y - y[i], H) # vector of kernel weights
+        tXW <- t(X * W) # element-wise multiply each col of X by W
+        theta.i <- solve(tXW %*% X, tXW %*% z)
+        smth[i] <- theta.i[1]
+    }
+    return(smth)
+}
+
+
+if (mar.bw.cv) {
 	# cross-validated bandwidth with sample splitting
 	print("CV bandwidth will take a while...")
 
@@ -335,7 +379,23 @@ if (marr.bw) {
 													   bwmethod="cv.aic",
 													   data=.SD))),
 			 by = c("MSA", husb.mrg, wife.mrg)]
+} else {
+	# manual age-only smoothing with kernel oriented along joint aging axis
+	marriages[, MASS := loc.poly.reg(AGE_M, AGE_F, RAW_MASS, pop.bw),
+			  by = c("MSA", husb.mrg, wife.mrg)]
+
+	mar.flow[, FLOW := loc.poly.reg(AGE_M, AGE_F, RAW_MF, flow.bw),
+			 by = c("MSA", husb.mrg, wife.mrg)]
+
+	mar.mig[, NET_OUTFLOW := loc.poly.reg(AGE_M, AGE_F, NET_OUTFLOW_RAW, mig.bw),
+			by = c("MSA", husb.mrg, wife.mrg)]
 }
+
+# age-only smoothing
+#marriages[, MASS := predict(npreg(bws=c(pop.bw, pop.bw),
+#								  txdat=.(AGE_M, AGE_F), tydat=RAW_MASS,
+#								  regtype="ll")),
+#		   by = c("MSA", husb.mrg, wife.mrg)]
 # full product kernel on all 6 variables
 #marriages[, MASS := predict(npreg(bws=npregbw(formula = MARRIAGES ~ AGE_M + COLLEGE_M + MINORITY_M + AGE_F + COLLEGE_F + MINORITY_F,
 #											  regtype="ll",
@@ -392,7 +452,7 @@ mar.mig <- merge(mar.mig, trm.wife.mig, all=TRUE,
 mar.flow <- mar.flow[AGE_M <= max.age & AGE_F <= max.age]
 div.flow <- div.flow[AGE <= max.age]
 
-# llr may give negative or tiny values: truncate to min of 0
+# local regression may give negative or tiny values: truncate to min of 0
 marriages[MASS < 0, MASS := 0.0]
 mar.flow[FLOW < 0, FLOW := 0.0]
 div.flow[FLOW < 0, FLOW := 0.0]
@@ -400,9 +460,9 @@ div.flow[FLOW < 0, FLOW := 0.0]
 
 ### Save flows and stocks ###
 
-fwrite(marriages, file="data/ageonly/marriages.csv")
-fwrite(pop.dt, file="data/ageonly/pop.csv")
-fwrite(mar.flow, file="data/ageonly/pair-MF.csv")
-fwrite(div.flow, file="data/ageonly/ind-DF.csv")
-fwrite(ind.mig, file="data/ageonly/indiv-migration.csv")
-fwrite(mar.mig, file="data/ageonly/mar-migration.csv")
+fwrite(marriages, file=file.path(out.dir, "marriages.csv"))
+fwrite(pop.dt, file=file.path(out.dir, "pop.csv"))
+fwrite(mar.flow, file=file.path(out.dir, "pair-MF.csv"))
+fwrite(div.flow, file=file.path(out.dir, "ind-DF.csv"))
+fwrite(ind.mig, file=file.path(out.dir, "indiv-migration.csv"))
+fwrite(mar.mig, file=file.path(out.dir, "mar-migration.csv"))

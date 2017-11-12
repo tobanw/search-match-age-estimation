@@ -13,10 +13,14 @@ interpolated_delta = false
 logistic_delta = false
 
 # what to run?
-reload_smooth = false # set true to reload the smoothed population csv files, otherwise use saved JLD
-grid_search = true # NOTE: need to manually set grids and modify `obj_landscaper` per model
+reload_smooth = true # set true to reload the smoothed population csv files, otherwise use saved JLD
+grid_search = false # NOTE: need to manually set grids and modify `obj_landscaper` per model
 estimate_rates = true # set true to run GMM estimation, otherwise just use ζx_0, ζd_0 below
 compute_np_obj = true
+
+data_dir = "data/ageonly16-13/"
+save_path = "results/est-dyn-const-ageonly-bw16-13.jld"
+csv_dir = "results/estimates-csv/dynamic-const/ageonly16-13/"
 
 # select optimizer for arrival rate estimation
 use_nlopt = true
@@ -188,8 +192,8 @@ Interpolated ξ:
 Loss: 1193.6704652231151
 """
 
-ζx_0 = [0.9]
-ζd_0 = [0.025]
+ζx_0 = [0.5]
+ζd_0 = [0.0275]
 
 
 ### ESTIMATION ###
@@ -204,13 +208,13 @@ if grid_search
 	# with double interpolation, ran slower: 140k/hour (probably because interpolators are constructed inside the function)
 
 	# logistic: ζ = [c,m,s1,s2] (age-gap) + [m,s] (avg age)
-	ζx1grid = linspace(0.3, 1.5, 32) # (global multiplicative scale-factor for λ)
+	ζx1grid = linspace(0.01, 10, 1000) # (global multiplicative scale-factor for λ)
 	#ζx2grid = [2] #linspace(0., 4., 4) # (mean for age-gap meeting slowdown)
 	#ζx3grid = linspace(0.15, 0.35, 8) # (1/spread for age-gap meeting slowdown)
 	#ζx4grid = [0] #linspace(10., 70., 5) # (mean for avg age search slowdown)
 	#ζx5grid = [0] #linspace(0, 0.08, 3) # (1/spread for avg age search slowdown)
 
-	ζd1grid = linspace(0.01, 0.06, 96) # (global multiplicative scale-factor for δ)
+	ζd1grid = linspace(0.001, 0.03, 450) # (global multiplicative scale-factor for δ)
 	#ζd2grid = [2] #linspace(0., 4., 4) # (mean for age-gap slowdown)
 	#ζd3grid = [0] #linspace(0, 0.3, 4) # (1/spread for age-gap slowdown)
 	#ζd4grid = [0] #linspace(-12, 0, 8) # (mean for avg age slowdown)
@@ -263,7 +267,7 @@ if estimate_rates # run optimizer for MD estimation
 		#lower_bounds!(opt, 0.1 * [ζx_0..., ζd_0...]) # band around initial guess
 		#upper_bounds!(opt, 10 * [ζx_0..., ζd_0...]) # band around initial guess
 		lower_bounds!(opt, [0.01, 0])
-		upper_bounds!(opt, [30, 1.])
+		upper_bounds!(opt, [500, 1.])
 		#lower_bounds!(opt, [0.1, -10, 0, -50, 0, 0.05, -10, 0, -50, 0])
 		#upper_bounds!(opt, [300,  15, 1,  50, 1, 5,     15, 1,  50, 1.])
 		#ftol_rel!(opt, 1e-12) # tolerance |Δf|/|f|
@@ -384,7 +388,7 @@ if compute_np_obj
 	avg_production = avg_production / n_msa
 
 	# store in JLD format
-	jldopen("results/estimates.jld", "w") do file  # open file for saving julia data
+	jldopen(save_path, "w") do file  # open file for saving julia data
 		write(file, "z-xi", ζx)
 		write(file, "z-delta", ζd)
 		# all arrays ages 26-65
@@ -430,12 +434,12 @@ if compute_np_obj
 	end
 
 	# convert to CSV for plotting
-	writetable("results/estimates-csv/prod.csv", msa_martab(production))
-	writetable("results/estimates-csv/alpha.csv", msa_martab(alpha))
-	writetable("results/estimates-csv/surplus.csv", msa_martab(surplus))
-	writetable("results/estimates-csv/men_val.csv", msa_indtab(men_val))
-	writetable("results/estimates-csv/wom_val.csv", msa_indtab(wom_val))
-	writetable("results/estimates-csv/mMF.csv", msa_martab(mMF))
-	writetable("results/estimates-csv/mDF_m.csv", msa_indtab(mDF_m))
-	writetable("results/estimates-csv/mDF_f.csv", msa_indtab(mDF_f))
+	writetable(joinpath(csv_dir, "prod.csv"), msa_martab(production))
+	writetable(joinpath(csv_dir, "alpha.csv"), msa_martab(alpha))
+	writetable(joinpath(csv_dir, "surplus.csv"), msa_martab(surplus))
+	writetable(joinpath(csv_dir, "men_val.csv"), msa_indtab(men_val))
+	writetable(joinpath(csv_dir, "wom_val.csv"), msa_indtab(wom_val))
+	writetable(joinpath(csv_dir, "mMF.csv"), msa_martab(mMF))
+	writetable(joinpath(csv_dir, "mDF_m.csv"), msa_indtab(mDF_m))
+	writetable(joinpath(csv_dir, "mDF_f.csv"), msa_indtab(mDF_f))
 end # compute_np_obj
