@@ -18,6 +18,10 @@ out.dir <- "data/ageonly16-13/"
 #	strategy: keep redundant types for compat
 static.types <- FALSE
 
+# boundaries: initial/terminal age
+min.age <- 18
+max.age <- 65
+
 # choose what bandwidth to use for ages in marriages and for individuals
 mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
 ind.bw.cv <- TRUE # set to TRUE to use bw=cv.aic
@@ -28,18 +32,15 @@ pop.bw <- matrix(c(16, 13, 13, 16), nrow = 2, ncol = 2)
 flow.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
 mig.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
 
-# connect to sqlite database
-# table names: acs, mig2met
-# NOTE: edit queries to adjust number of years to divide masses by
-db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-15.db')
-
 # top 20 largest MSAs
 top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
 top_msa <- ' (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580) '
 
-# terminal age
-max.age <- 65
-min.age <- 18
+
+# connect to sqlite database
+# table names: acs, mig2met
+# NOTE: edit queries to adjust number of years to divide masses by
+db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-15.db')
 
 
 ### Categorization ###
@@ -238,7 +239,7 @@ for (col in c(husb.mrg, wife.mrg)) set(mar.flow, j = col, value = factor(mar.flo
 for (col in c(husb.mrg, wife.mrg)) set(mar.mig, j = col, value = factor(mar.mig[[col]]))
 
 if (ind.bw.cv) {
-	# cross-validated bandwidth (product kernel)
+	# cross-validated bandwidth
 	pop.dt[, `:=`(SNG = predict(npreg(bws=npregbw(formula = RAW_SNG ~ AGE,
 												  regtype="ll",
 												  bwmethod="cv.aic",
@@ -314,10 +315,10 @@ matrix.inv <- function(A) {chol2inv(chol(A))}
 
 # matrix sqrt function
 matrix.sqrt <- function(A) {
-    if (length(A)==1)
+    if (length(A) == 1)
         return(sqrt(A))
     sva <- svd(A)
-    if (min(sva$d)>=0)
+    if (min(sva$d) >= 0)
         Asqrt <- sva$u %*% diag(sqrt(sva$d)) %*% t(sva$v)
     else
         stop("Matrix square root is not defined")
@@ -351,6 +352,8 @@ loc.poly.reg <- function(x, y, z, H) {
 				   (x - x[i])^3, (y - y[i])^3, (x - x[i])^2*(y - y[i]), (x - x[i])*(y - y[i])^2)
         W <- K.H(x - x[i], y - y[i], H) # vector of kernel weights
         tXW <- t(X * W) # element-wise multiply each col of X by W
+
+		# smoothed value is the intercept of local regression: (kernel) weighted least-squares
         theta.i <- solve(tXW %*% X, tXW %*% z)
         smth[i] <- theta.i[1]
     }

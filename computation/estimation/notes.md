@@ -1,5 +1,8 @@
 # Estimation notes
 
+* TODO: if pooling the lower boundary population, need to adjust aging rate to reflect that only 1/k of the initial age group will age out of it
+	* Currently, not pooling at all; could just acknowledge the boundary bias problem but note that it doesn't affect the action in 30s and onward
+	* for edu, just start model at 24 with inflows from 23, i.e., `min.age = 23` in SQL queries
 * GMM estimation drops terminal age moments, so meeting rates can't be biased by the edge cases
 * moment fitting insights: MF (DF) strictly monotonic in lambda (delta)
 	* alpha decreases in lambda, but MF still increases in lambda
@@ -146,7 +149,7 @@
 		* tradeoff: overestimate MF or predict rise of divorce too late
 		* I.e., lambda too high (overestimate MF) or too low (underestimate DF)
 		* Implies model is not consistent with data: marriage and divorce are NOT governed by a common alpha!
-		* Ageonly: equal = 6.35, 2MF = 1.37, 4MF = 0.6
+		* Ageonly: equal = 7, 2MF = 1.37, 4MF = 0.6
 * comparisons:
 	* GJR: delta = 0.038, xi=0.1515
 	* Gousse: delta = (0.025, 0.058), lambda (quadratic) = (0.0029, 0.0078)
