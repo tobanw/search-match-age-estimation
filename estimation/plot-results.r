@@ -6,7 +6,7 @@ age.only <- TRUE
 data.path <- "data/ageonly16-13/" # input dir: smoothed data
 estim.path <- "results/estimates-csv/dynamic-const/ageonly16-13/" # input dir: model estimates
 plot.path <- "results/result-plots/dynamic-const/ageonly/" # output dir: plots
-img.ext <- ".pdf"
+img.ext <- ".png"
 
 # Cities for faceted plots
 top.cities <- c(35620, 31080, 16980, 19100)
@@ -92,6 +92,9 @@ set(m.stock.dt, j = 'CITY', value = factor(m.stock.dt[['CITY']]))
 
 ##### PLOTTING #####
 
+# list of plots to convert to tikz
+plots <- list() # 5.5 x 2.5 standard size
+
 # plotting layers
 xy.line <- geom_segment(x=min.age, y=min.age, xend=max.age, yend=max.age, colour="white", size=1.2)
 age.labs <- labs(x="Husband age", y="Wife age")
@@ -113,7 +116,8 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 	### MF fit: data and model ###
 
 	# data: top 4
-	ggplot(mf.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
+	p <- ggplot(
+		   mf.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		         COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
 		         COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]] ],
 	       aes(x=AGE_M, y=AGE_F, z=DATA)) +
@@ -122,10 +126,13 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("dMF_", r, e)]] <- p
 	ggsave(paste0("mf-data-", r, e, img.ext), path = plot.path)
 
 	# model: top 4
-	ggplot(mf.dt[MODEL >= 0 & AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
+	p <- ggplot(
+		   mf.dt[MODEL >= 0 & AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		         COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
 		         COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]] ],
 	       aes(x=AGE_M, y=AGE_F, z=MODEL)) +
@@ -134,10 +141,13 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("MF_", r, e)]] <- p
 	ggsave(paste0("mf-model-", r, e, img.ext), path = plot.path)
 
 	# fit gap, top 4: (model - data)
-	ggplot(mf.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
+	p <- ggplot(
+		   mf.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		         COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
 		         COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]],
 		         .(AGE_M, AGE_F, FIT = MODEL - DATA, CITY)],
@@ -147,12 +157,15 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("fitMF_", r, e)]] <- p
 	ggsave(paste0("mf-fit-", r, e, img.ext), path = plot.path)
 
 
 	### DF fit: data and model ###
 
-	ggplot(df.dt[MSA %in% top.cities & AGE<max.age &
+	p <- ggplot(
+		   df.dt[MSA %in% top.cities & AGE<max.age &
 		         COLLEGE==edu.types[[e]] & MINORITY==rac.types[[r]] ],
 		   aes(x=AGE)) +
 		geom_line(aes(y=FLOW_M_DATA, color = "Male"), size=1) +
@@ -161,26 +174,32 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		geom_line(aes(y=FLOW_F_MODEL, color = "Female"), size=1, linetype=2) +
 		labs(x="Age", y="Divorces", color="Sex") +
 		facet_wrap(~CITY, scales = "free_y")
+
+	plots[[paste0("DF_", r, e)]] <- p
 	ggsave(paste0("df-", r, e, img.ext), path = plot.path)
 
 
 	### Alpha ###
 
-	ggplot(alpha.dt[MSA %in% top.cities &
-		            COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
-		            COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]] ],
+	p <- ggplot(
+		   alpha.dt[MSA %in% top.cities &
+					COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
+					COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]] ],
 		   aes(x=AGE_M, y=AGE_F, z=VALUE)) +
 		stat_contour(aes(colour=..level..), size=0.5) +
 		alpha.color.grad +
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("alpha_", r, e)]] <- p
 	ggsave(paste0("alpha-", r, e, img.ext), path = plot.path)
 
 
 	### Production ###
 
-	ggplot(prod.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
+	p <- ggplot(
+		   prod.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		           COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
 		           COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]],
 				   .(CITY, AGE_M, AGE_F, TVAL = truncator(VALUE, -4, 2.4))],
@@ -191,24 +210,30 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("prod_", r, e)]] <- p
 	ggsave(paste0("prod-", r, e, img.ext), path = plot.path)
 
 
 	### Value functions ###
 
-	ggplot(val.dt[MSA %in% top.cities & AGE<max.age &
+	p <- ggplot(
+		   val.dt[MSA %in% top.cities & AGE<max.age &
 		          COLLEGE==edu.types[[e]] & MINORITY==rac.types[[r]] ],
 		   aes(x=AGE)) +
 		geom_line(aes(y=VALUE_M, color = "Male"), size=1) +
 		geom_line(aes(y=VALUE_F, color = "Female"), size=1) +
 		labs(x="Age", y="Value of search", color="Sex") +
 		facet_wrap(~CITY)
+
+	plots[[paste0("val_", r, e)]] <- p
 	ggsave(paste0("val-", r, e, img.ext), path = plot.path)
 
 
 	### Marriage Stocks ###
-		
-	ggplot(m.stock.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
+
+	p <- ggplot(
+		   m.stock.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		              COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
 		              COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]] ],
 		   aes(x=AGE_M, y=AGE_F, z=MASS)) +
@@ -217,12 +242,15 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("marstock_", r, e)]] <- p
 	ggsave(paste0("mar-stock-", r, e, img.ext), path = plot.path)
 
 
 	### Marriage Emigration Flows ###
 
-	ggplot(m.mig.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
+	p <- ggplot(
+		   m.mig.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		            COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
 		            COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]] ],
 		   aes(x=AGE_M, y=AGE_F, z=NET_OUTFLOW)) +
@@ -231,12 +259,15 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		xy.line +
 		age.labs +
 		facet_wrap(~CITY)
+
+	plots[[paste0("marmig_", r, e)]] <- p
 	ggsave(paste0("mar-mig-", r, e, img.ext), path = plot.path)
 
 
 	### Population Stocks ###
 
-	ggplot(pop.dt[MSA %in% top.cities & AGE<max.age &
+	p <- ggplot(
+		   pop.dt[MSA %in% top.cities & AGE<max.age &
 		          COLLEGE==edu.types[[e]] & MINORITY==rac.types[[r]] ],
 		   aes(x=AGE)) +
 		geom_line(aes(y=POP_M, color = "Male"), size=1) +
@@ -245,6 +276,13 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 		geom_line(aes(y=SNG_F, color = "Female"), size=1, linetype=2) +
 		labs(x="Age", y="Counts", color="Sex") +
 		facet_wrap(~CITY, scales = "free_y")
+
+	plots[[paste0("pop_", r, e)]] <- p
 	ggsave(paste0("pop-", r, e, img.ext), path = plot.path)
 
 }
+
+### Save plot objects ###
+
+# save objects for further manipulation and conversion to tex
+saveRDS(plots, file = file.path(plot.path, "plot-standard.Rdata"))
