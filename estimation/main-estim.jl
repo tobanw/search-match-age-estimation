@@ -18,9 +18,10 @@ grid_search = false # NOTE: need to manually set grids and modify `obj_landscape
 estimate_rates = true # set true to run GMM estimation, otherwise just use ζx_0, ζd_0 below
 compute_np_obj = true
 
-data_dir = "data/ageonly16-13/"
-save_path = "results/est-dyn-const-ageonly-bw16-13.jld"
-csv_dir = "results/estimates-csv/dynamic-const/ageonly16-13/"
+data_dir = "data/racedu24/"
+pop_file = "results/populations.jld"
+save_path = "results/est-dyn-const-bw24.jld"
+csv_dir = "results/estimates-csv/dynamic-const/racedu24/"
 
 # select optimizer for arrival rate estimation
 use_nlopt = true
@@ -42,8 +43,8 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 
 @everywhere begin # load on all process in case running parallel
 
-	const no_edu = true # whether to exclude college as a static type
-	const no_race = true # whether to exclude race as a static type
+	const no_edu = false # whether to exclude college as a static type
+	const no_race = false # whether to exclude race as a static type
 
 	const r = 0.04 # discount rate
 	const ρ = 1.0 # aging rate
@@ -52,9 +53,8 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 
 	# NOTE: must match `max.age` from `smooth-pop.r` and mortality data
 	const max_age = 65 # terminal age (inclusive)
-	const min_age = 18 # initial age (excluded)
+	const min_age = 25 # initial age (excluded)
 	const n_ages = max_age - min_age # excluding 25
-	const n_years = 8 # 2008-2015
 
 	# NOTE: must match `top.msa` from `smooth-pop.r` and `smooth-flows.r`
 	const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460,
@@ -86,7 +86,7 @@ end
 
 @everywhere begin # load on all process in case running parallel
 	# load saved data as dict
-	pp = JLD.load("results/populations-ageonly.jld")
+	pp = JLD.load(pop_file)
 
 
 	# load and trim age 25 from psi, summing out edu
@@ -192,8 +192,8 @@ Interpolated ξ:
 Loss: 1193.6704652231151
 """
 
-ζx_0 = [0.5]
-ζd_0 = [0.0275]
+ζx_0 = [2.5]
+ζd_0 = [0.02]
 
 
 ### ESTIMATION ###
@@ -346,7 +346,7 @@ if compute_np_obj
 									  mar_outflow["$msa"][2:end,:,:,2:end,:,:])
 
 		# truncated α
-		alpha["$msa"] = clamp.(alpha_raw["$msa"], 1e-3, 1 - 1e-3) # enforce 0 < α < 1
+		alpha["$msa"] = clamp.(alpha_raw["$msa"], 1e-6, 1 - 1e-6) # enforce 0 < α < 1
 
 		mMF["$msa"], mDF_m["$msa"], mDF_f["$msa"] = model_moments(λ, δ, ψm_ψf, marriages["$msa"],
 																  sng_outer["$msa"][2:end,:,:,2:end,:,:],

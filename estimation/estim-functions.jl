@@ -46,7 +46,7 @@ end
 function compute_alpha(λ::Array, δ::Array, ψm_ψf::Array, mar_init::Array, um_uf::Array, mar_out::Array)
 	α = compute_raw_alpha(λ, δ, ψm_ψf, mar_init, um_uf, mar_out)
 	# TODO: alternatively, could use smooth truncator
-	return clamp.(α, 1e-3, 1 - 1e-3) # enforce 0 < α < 1
+	return clamp.(α, 1e-6, 1 - 1e-6) # enforce 0 < α < 1
 end
 
 function compute_MF(λ::Array, um_uf::Array, α::Array)
@@ -140,9 +140,7 @@ function loss(ζx::Vector, ζd::Vector, ψm_ψf::Array,
 	# Verbose progress indicator 
 	#println(@sprintf("sse: %.5e, δ: %.3g, ζ: ", sse, δ), ζ)
 
-	# FIXME: testing different weighting of MF vs DF (because of identification problems for xi)
-	return 2*loss_MF, loss_DF
-	#return loss_MF, loss_DF
+	return loss_MF, loss_DF # can play with relative weights
 end
 
 "Objective function to pass to NLopt: requires vectors for `x` and `grad`."

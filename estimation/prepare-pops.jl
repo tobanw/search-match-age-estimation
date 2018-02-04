@@ -171,7 +171,8 @@ end
 ψm_ψf = outer_op(+, ψ_m, ψ_f) # array of ψ_m(x) + ψ_f(y)
 
 # store in JLD format
-jldopen("results/populations-ageonly.jld", "w") do file  # open file for saving julia data
+# Set `pop_file` in main-estim.jl
+jldopen(pop_file, "w") do file  # open file for saving julia data
 	# arrays: death arrival rates (includes age 25)
 	write(file, "men_psi", ψ_m)
 	write(file, "wom_psi", ψ_f)

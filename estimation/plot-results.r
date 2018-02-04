@@ -2,10 +2,10 @@ library(data.table)
 library(ggplot2)
 
 # SELECT model
-age.only <- TRUE
-data.path <- "data/ageonly16-13/" # input dir: smoothed data
-estim.path <- "results/estimates-csv/dynamic-const/ageonly16-13/" # input dir: model estimates
-plot.path <- "results/result-plots/dynamic-const/ageonly/" # output dir: plots
+age.only <- FALSE
+data.path <- "data/racedu24/" # input dir: smoothed data
+estim.path <- "results/estimates-csv/dynamic-const/racedu24/" # input dir: model estimates
+plot.path <- "results/result-plots/dynamic-const/racedu24/" # output dir: plots
 img.ext <- ".png"
 
 # Cities for faceted plots
@@ -198,6 +198,24 @@ for (r in names(rac.types)) for (e in names(edu.types)) {
 
 	### Production ###
 
+	# global average f
+	p <- ggplot(
+		   prod.dt[AGE_M < max.age-1 & AGE_F < max.age-1 &
+		           COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &
+		           COLLEGE_F==edu.types[[e]] & MINORITY_F==rac.types[[r]],
+				   .(TVAL = truncator(mean(VALUE), -4, 4)),
+				   by = .(AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F)],
+		   aes(x=AGE_M, y=AGE_F, z=TVAL)) +
+		#geom_tile(aes(fill = TVAL)) +
+		stat_contour(aes(colour=..level..), size=0.25) +
+		prod.color.grad +
+		xy.line +
+		age.labs
+
+	plots[[paste0("prod_global_", r, e)]] <- p
+	ggsave(paste0("prod-global-", r, e, img.ext), path = plot.path)
+
+	# local estimates
 	p <- ggplot(
 		   prod.dt[AGE_M < max.age-1 & AGE_F < max.age-1 & MSA %in% top.cities &
 		           COLLEGE_M==edu.types[[e]] & MINORITY_M==rac.types[[r]] &

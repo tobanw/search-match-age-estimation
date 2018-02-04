@@ -7,7 +7,7 @@ static.types <- TRUE
 
 # terminal age: must match `smooth_pop.r`
 max.age <- 65
-min.age <- 18
+min.age <- 25 # exclusive (inflow group)
 
 # load up CDC mortality table
 if (static.types) { # by sex, age, and minority
@@ -16,7 +16,7 @@ if (static.types) { # by sex, age, and minority
 	# full grid to merge and interpolate mortality rates
 	ind.grid <- CJ(AGE = min.age:90, COLLEGE = 1:2, MINORITY = 1:2)
 } else { # by sex, age
-	mort.dt <- fread('data/ageonly/mort_08-15.csv')
+	mort.dt <- fread('data/mort-ageonly_08-15.csv')
 	mort.dt[, MINORITY := 1] # for compat
 
 	ind.grid <- CJ(AGE = min.age:90, COLLEGE = 1, MINORITY = 1)
@@ -66,8 +66,8 @@ wom.death <- merge(wom.death[AGE < max.age], trm.wom.death,
 
 # save tables to csv
 if (static.types) { # by sex, age, and minority
-	fwrite(men.death[, .(AGE, COLLEGE, MINORITY, PSI)], file="data/men-psi.csv")
-	fwrite(wom.death[, .(AGE, COLLEGE, MINORITY, PSI)], file="data/wom-psi.csv")
+	fwrite(men.death[, .(AGE, COLLEGE, MINORITY, PSI)], file="data/racedu/men-psi.csv")
+	fwrite(wom.death[, .(AGE, COLLEGE, MINORITY, PSI)], file="data/racedu/wom-psi.csv")
 } else { # by sex, age
 	fwrite(men.death[, .(AGE, COLLEGE, MINORITY, PSI)], file="data/ageonly/men-psi.csv")
 	fwrite(wom.death[, .(AGE, COLLEGE, MINORITY, PSI)], file="data/ageonly/wom-psi.csv")

@@ -3,8 +3,10 @@
 # Order of traits: husband then wife; age, edu, race
 # Notation: husband gets _SP suffix, wife is default
 # Min age with edu is 25 because of endogeneity of college
-# ACS data: 2008-2015, ages 18-79 (note: AGE_SP is not limited).
+# ACS data: 2008-2016, ages 18-79 (note: AGE_SP is not limited).
+#	Note: 2015 and 2016 are missing the RACESING variable
 
+library(stringr) # string interpolation
 library(DBI) # RSQLite database functions
 library(data.table)
 library(np) # non-parametric regression
@@ -12,49 +14,79 @@ library(np) # non-parametric regression
 
 ### Usage Options ###
 
-out.dir <- "data/ageonly16-13/"
+out.dir <- "data/racedu24/"
 
-# use edu and race as types? modify output filename at bottom
-#	strategy: keep redundant types for compat
-static.types <- FALSE
+# use edu and race as types? (even if not, still keep redundant types for compat)
+static.types <- TRUE
+
+# number of ACS samples that are pooled#
+n.samples <- 9
 
 # boundaries: initial/terminal age
-min.age <- 18
+min.age <- 25
 max.age <- 65
 
 # choose what bandwidth to use for ages in marriages and for individuals
-mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
 ind.bw.cv <- TRUE # set to TRUE to use bw=cv.aic
+mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
 
 # bws to use for manual age smoothing
 ind.bw <- 1.0
-pop.bw <- matrix(c(16, 13, 13, 16), nrow = 2, ncol = 2)
+pop.bw <- matrix(24 * c(1, 0.8, 0.8, 1), nrow = 2, ncol = 2)
 flow.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
 mig.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
 
 # top 20 largest MSAs
 top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
-top_msa <- ' (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580) '
+top_msa <- '(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)'
 
 
 # connect to sqlite database
 # table names: acs, mig2met
 # NOTE: edit queries to adjust number of years to divide masses by
-db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-15.db')
+db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-16.db')
 
 
 ### Categorization ###
 
-case_minority <- ' case when "RACESING" in (1,4) and "HISPAN" = 0 then 1 else 2 end '
-case_minority_sp <- ' case when "RACESING_SP" in (1,4) and "HISPAN_SP" = 0 then 1 else 2 end '
-case_college <- ' case when "EDUC" >= 10 then 2 else 1 end '
-case_college_sp <- ' case when "EDUC_SP" >= 10 then 2 else 1 end '
+range.white <- '100 and 130'
+range.asian <- '400 and 699'
+range.asian2 <- '860 and 892'
+range.whasian <- '810 and 826'
+range.whasian2 <- '910 and 925'
+codes.extra <- '(943, 963)'
+
+# Note: SQL uses waterfall logic for case-when -- it stops at the first true when condition
+template_non_minority <- c('case',
+						   ' when ${race.var} between ${range.white} then 1',
+						   ' when ${race.var} between ${range.asian} then 1',
+						   ' when ${race.var} between ${range.asian2} then 1',
+						   ' when ${race.var} between ${range.whasian} then 1',
+						   ' when ${race.var} between ${range.whasian2} then 1',
+						   ' when ${race.var} in ${codes.extra} then 1',
+						   ' else 2 end')
+
+race.var <-'"RACED"'
+case_minority <- str_interp(template_non_minority)
+
+race.var <-'"RACED_SP"'
+case_minority_sp <- str_interp(template_non_minority)
+
+
+template_college <- 'case when ${edu.var} >= 10 then 2 else 1 end'
+
+edu.var <- '"EDUC"'
+case_college <- str_interp(template_college)
+
+edu.var <- '"EDUC_SP"'
+case_college_sp <- str_interp(template_college)
+
 
 # customize queries for desired types
 if (static.types) {
-	ind.types <- paste0(case_college, 'as COLLEGE,', case_minority, 'as MINORITY,')
-	husb.types <- paste0(case_college_sp, 'as COLLEGE_M,', case_minority_sp, 'as MINORITY_M,')
-	wife.types <- paste0(case_college, 'as COLLEGE_F,', case_minority, 'as MINORITY_F,')
+	ind.types <- paste(case_college, 'as COLLEGE,', case_minority, 'as MINORITY,')
+	husb.types <- paste(case_college_sp, 'as COLLEGE_M,', case_minority_sp, 'as MINORITY_M,')
+	wife.types <- paste(case_college, 'as COLLEGE_F,', case_minority, 'as MINORITY_F,')
 } else {
 	ind.types <- '1 as COLLEGE, 1 as MINORITY,'
 	husb.types <- '1 as COLLEGE_M, 1 as MINORITY_M,'
@@ -84,41 +116,41 @@ if (static.types) {
 ### Queries ###
 
 # total population counts
-qry_tot <- paste0('select "MET2013" as MSA, "SEX" as SEX,
-					  "AGE" as AGE, ', ind.types,
-					  ' sum("PERWT")/8 as RAW_POP
+qry_tot <- paste('select "MET2013" as MSA, "SEX" as SEX,
+					  "AGE" as AGE,', ind.types,
+					  'sum("PERWT")/', n.samples, 'as RAW_POP
 				  from acs
-				  where AGE >= ', min.age, ' and MSA in ', top_msa, ' and "GQ" < 3
+				  where AGE >=', min.age, 'and MSA in', top_msa, 'and "GQ" < 3
 				  group by MSA, SEX, AGE', ind.grp)
 
 # singles counts
-qry_sng <- paste0('select "MET2013" as MSA, "SEX" as SEX,
-					  "AGE" as AGE, ', ind.types,
-					  ' sum("PERWT")/8 as RAW_SNG
+qry_sng <- paste('select "MET2013" as MSA, "SEX" as SEX,
+					  "AGE" as AGE,', ind.types,
+					  'sum("PERWT")/', n.samples, 'as RAW_SNG
 				  from acs
-				  where AGE >= ', min.age, ' and "MARST" >= 3 and MSA in ', top_msa, ' and "GQ" < 3
+				  where AGE >=', min.age, 'and "MARST" >= 3 and MSA in', top_msa, 'and "GQ" < 3
 				  group by MSA, SEX, AGE', ind.grp)
 
 # married counts
-qry_marr <- paste0('select "MET2013" as MSA,
-					   "AGE_SP" as AGE_M, ', husb.types,
-					   ' "AGE" as AGE_F, ', wife.types,
-					   ' sum("HHWT")/8 as RAW_MASS
+qry_marr <- paste('select "MET2013" as MSA,
+					   "AGE_SP" as AGE_M,', husb.types,
+					   '"AGE" as AGE_F,', wife.types,
+					   'sum("HHWT")/', n.samples, 'as RAW_MASS
 				   from acs
 				   where "MARST" <= 2 and "SEX" = 2
-					   and AGE_F >=', min.age, '  and AGE_M >= ', min.age,
-					   ' and MSA in ', top_msa,
+					   and AGE_F >=', min.age, 'and AGE_M >=', min.age,
+					   'and MSA in', top_msa,
 				   'group by MSA, AGE_M', husb.grp, ', AGE_F', wife.grp)
 
 # MF(x,y): counts of new marriages by MSA and type pair
-qry_marr_flow <- paste0('select "MET2013" as MSA,
-							"AGE_SP" as AGE_M, ', husb.types,
-							' "AGE" as AGE_F, ', wife.types,
-							' sum("HHWT")/8 as RAW_MF
+qry_marr_flow <- paste('select "MET2013" as MSA,
+							"AGE_SP" as AGE_M,', husb.types,
+							'"AGE" as AGE_F,', wife.types,
+							'sum("HHWT")/', n.samples, 'as RAW_MF
 						from acs
 						where "MARRINYR" = 2 and "MARST" <= 2
-							and AGE_F >= ', min.age, ' and AGE_M >= ', min.age,
-							' and MSA in ', top_msa, ' and "SEX" = 2
+							and AGE_F >=', min.age, 'and AGE_M >=', min.age,
+							'and MSA in', top_msa, 'and "SEX" = 2
 						group by MSA, AGE_M', husb.grp,', AGE_F', wife.grp)
 
 # MF(x), MF(y)
@@ -130,57 +162,57 @@ qry_marr_flow <- paste0('select "MET2013" as MSA,
 #	'group by MSA, SEX, AGE, COLLEGE, MINORITY')
 
 # DF(x), DF(y)
-qry_div_flow <- paste0('select "MET2013" as MSA, "SEX" as SEX,
-						   "AGE" as AGE, ', ind.types,
-						   ' sum("PERWT")/8 as RAW_DF
+qry_div_flow <- paste('select "MET2013" as MSA, "SEX" as SEX,
+						   "AGE" as AGE,', ind.types,
+						   'sum("PERWT")/', n.samples, 'as RAW_DF
 					   from acs
-					   where "DIVINYR" = 2 and AGE >= ', min.age, ' and MSA in ', top_msa,
-					   ' group by MSA, SEX, AGE', ind.grp)
+					   where "DIVINYR" = 2 and AGE >=', min.age, 'and MSA in', top_msa,
+					   'group by MSA, SEX, AGE', ind.grp)
 
-# migration inflow: counts of people who weren't in current MSA last year
-qry_inflow <- paste0('select acs."MET2013" as MSA, acs."SEX" as SEX,
-						 acs."AGE" as AGE, ', ind.types, 
-						 ' sum(acs."PERWT")/4 as INFLOW_RAW
+# migration inflow: counts of people who weren't in current MSA last year (only defined starting in 2012)
+qry_inflow <- paste('select acs."MET2013" as MSA, acs."SEX" as SEX,
+						 acs."AGE" as AGE,', ind.types,
+						 'sum(acs."PERWT")/', n.samples - 4, 'as INFLOW_RAW
                      from acs
                      left join mig2met as m on acs."MIGPUMA1"=m."MIGPUMA1" and acs."MIGPLAC1"=m."MIGPLAC1"
-                     where acs."AGE" >= ', min.age, ' and acs."MET2013" in ', top_msa, ' and m."MSA" != acs."MET2013"
+                     where acs."AGE" >=', min.age, 'and acs."MET2013" in', top_msa, 'and m."MSA" != acs."MET2013"
                          and acs."MIGRATE1D" >= 24 and acs."GQ" < 3 and acs."YEAR" >= 2012
                      group by acs."MET2013", acs."SEX", acs."AGE"', ind.grp)
 
-# migration outflow: counts of people who were in MSA last year but no longer
-qry_outflow <- paste0('select m."MSA" as MSA, acs."SEX" as SEX,
-						  acs."AGE" as AGE, ', ind.types,
-						  ' sum(acs."PERWT")/4 as OUTFLOW_RAW
+# migration outflow: counts of people who were in MSA last year but no longer (only defined starting in 2012)
+qry_outflow <- paste('select m."MSA" as MSA, acs."SEX" as SEX,
+						  acs."AGE" as AGE,', ind.types,
+						  'sum(acs."PERWT")/', n.samples - 4, 'as OUTFLOW_RAW
                       from acs
                       left join mig2met as m on acs."MIGPUMA1"=m."MIGPUMA1" and acs."MIGPLAC1"=m."MIGPLAC1"
-                      where acs."AGE" >= ', min.age, ' and m."MSA" in ', top_msa, ' and m."MSA" != acs."MET2013"
+                      where acs."AGE" >=', min.age, 'and m."MSA" in', top_msa, 'and m."MSA" != acs."MET2013"
 						  and acs."MIGRATE1D" >= 24 and acs."GQ" < 3 and acs."YEAR" >= 2012
                       group by m."MSA", acs."SEX", acs."AGE"', ind.grp)
 
-# couple migration inflows
-qry_inmar <- paste0('select acs."MET2013" as MSA,
+# couple migration inflows (only defined starting in 2012)
+qry_inmar <- paste('select acs."MET2013" as MSA,
 						acs."AGE_SP" as AGE_M, ', husb.types,
-						' acs."AGE" as AGE_F, ', wife.types,
-						' sum(acs."HHWT")/4 as INFLOW_RAW
+						'acs."AGE" as AGE_F, ', wife.types,
+						'sum(acs."HHWT")/', n.samples - 4, 'as INFLOW_RAW
                      from acs
                      left join mig2met as m on acs."MIGPUMA1"=m."MIGPUMA1" and acs."MIGPLAC1"=m."MIGPLAC1"
-                     where acs."MET2013" in ', top_msa, ' and m."MSA" != acs."MET2013"
+                     where acs."MET2013" in', top_msa, 'and m."MSA" != acs."MET2013"
                         and "MARST" <= 2 and "SEX" = 2
-                        and AGE_F >= ', min.age, ' and AGE_M >= ', min.age,
-						' and acs."MIGRATE1D" >= 24 and acs."YEAR" >= 2012
+                        and AGE_F >=', min.age, 'and AGE_M >=', min.age,
+						'and acs."MIGRATE1D" >= 24 and acs."YEAR" >= 2012
                      group by acs."MET2013", acs."AGE_SP"', husb.grp,', acs."AGE"', wife.grp)
 
-# couple migration outflows
-qry_outmar <- paste0('select m."MSA" as MSA,
-						acs."AGE_SP" as AGE_M, ', husb.types,
-						' acs."AGE" as AGE_F, ', wife.types,
-						' sum(acs."HHWT")/4 as OUTFLOW_RAW
+# couple migration outflows (only defined starting in 2012)
+qry_outmar <- paste('select m."MSA" as MSA,
+						acs."AGE_SP" as AGE_M,', husb.types,
+						'acs."AGE" as AGE_F,', wife.types,
+						'sum(acs."HHWT")/', n.samples - 4, 'as OUTFLOW_RAW
                      from acs
                      left join mig2met as m on acs."MIGPUMA1"=m."MIGPUMA1" and acs."MIGPLAC1"=m."MIGPLAC1"
-                     where m."MSA" in ', top_msa, '  and m."MSA" != acs."MET2013"
+                     where m."MSA" in', top_msa, 'and m."MSA" != acs."MET2013"
                         and "MARST" <= 2 and "SEX" = 2
-                        and AGE_F >= ', min.age, ' and AGE_M >= ', min.age,
-                        ' and acs."MIGRATE1D" >= 24 and acs."YEAR" >= 2012
+                        and AGE_F >=', min.age, 'and AGE_M >=', min.age,
+                        'and acs."MIGRATE1D" >= 24 and acs."YEAR" >= 2012
                      group by m."MSA", acs."AGE_SP"', husb.grp,', acs."AGE"', wife.grp)
 
 # queries return dataframes, convert to data.table and merge into the complete grid
@@ -239,7 +271,7 @@ for (col in c(husb.mrg, wife.mrg)) set(mar.flow, j = col, value = factor(mar.flo
 for (col in c(husb.mrg, wife.mrg)) set(mar.mig, j = col, value = factor(mar.mig[[col]]))
 
 if (ind.bw.cv) {
-	# cross-validated bandwidth
+	# cross-validated bandwidth with sample splitting on categoricals
 	pop.dt[, `:=`(SNG = predict(npreg(bws=npregbw(formula = RAW_SNG ~ AGE,
 												  regtype="ll",
 												  bwmethod="cv.aic",
@@ -347,10 +379,12 @@ loc.poly.reg <- function(x, y, z, H) {
     
     # for each row: get kernel weights for all datapoints
     for (i in 1:n) {
-        X <- cbind(1, x - x[i], y - y[i],
-				   (x - x[i])^2, (y - y[i])^2, (x - x[i])*(y - y[i]),
-				   (x - x[i])^3, (y - y[i])^3, (x - x[i])^2*(y - y[i]), (x - x[i])*(y - y[i])^2)
-        W <- K.H(x - x[i], y - y[i], H) # vector of kernel weights
+		xm <- x - x[i]
+		ym <- y - y[i]
+        X <- cbind(1, xm, ym,
+				   xm^2, ym^2, xm*ym,
+				   xm^3, ym^3, xm^2*ym, xm*ym^2)
+        W <- K.H(xm, ym, H) # vector of kernel weights
         tXW <- t(X * W) # element-wise multiply each col of X by W
 
 		# smoothed value is the intercept of local regression: (kernel) weighted least-squares
