@@ -1,4 +1,4 @@
-# Non-parametric (local-linear) regression to smooth population stocks
+# Non-parametric (local-cubic) regression to smooth population stocks
 
 # Order of traits: husband then wife; age, edu, race
 # Notation: husband gets _SP suffix, wife is default
@@ -11,30 +11,36 @@ library(DBI) # RSQLite database functions
 library(data.table)
 library(np) # non-parametric regression
 
+source("local-regression.r") # load local-polynomial regression function
+
 
 ### Usage Options ###
 
 out.dir <- "data/racedu24/"
 
 # use edu and race as types? (even if not, still keep redundant types for compat)
-static.types <- TRUE
+age.only <- FALSE
 
-# number of ACS samples that are pooled#
+# number of ACS samples that are pooled
 n.samples <- 9
 
 # boundaries: initial/terminal age
-min.age <- 25
-max.age <- 65
+min.age <- 25 # exclusive (18 or 25 with edu)
+max.age <- 65 # inclusive
 
 # choose what bandwidth to use for ages in marriages and for individuals
 ind.bw.cv <- TRUE # set to TRUE to use bw=cv.aic
-mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
-
-# bws to use for manual age smoothing
 ind.bw <- 1.0
-pop.bw <- matrix(24 * c(1, 0.8, 0.8, 1), nrow = 2, ncol = 2)
-flow.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
-mig.bw <- pop.bw #matrix(c(10, 9, 9, 10), nrow = 2, ncol = 2)
+
+mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
+# bws to use for manual age smoothing
+pop.bw.var <- 24 # bandwidth (16 for age-only, 24 with rac-edu)
+pop.bw.cov <- 0.98 # how diagonal is kernel? values selected by manual validation
+pop.bw <- matrix(pop.bw.var * c(1, pop.bw.cov, pop.bw.cov, 1), nrow = 2, ncol = 2)
+flow.bw.cov <- 0.9
+flow.bw <- matrix(pop.bw.var * c(1, flow.bw.cov, flow.bw.cov, 1), nrow = 2, ncol = 2)
+mig.bw.cov <- 0.85
+mig.bw <- matrix(pop.bw.var * c(1, mig.bw.cov, mig.bw.cov, 1), nrow = 2, ncol = 2)
 
 # top 20 largest MSAs
 top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
@@ -43,7 +49,6 @@ top_msa <- '(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 1446
 
 # connect to sqlite database
 # table names: acs, mig2met
-# NOTE: edit queries to adjust number of years to divide masses by
 db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-16.db')
 
 
@@ -83,14 +88,14 @@ case_college_sp <- str_interp(template_college)
 
 
 # customize queries for desired types
-if (static.types) {
-	ind.types <- paste(case_college, 'as COLLEGE,', case_minority, 'as MINORITY,')
-	husb.types <- paste(case_college_sp, 'as COLLEGE_M,', case_minority_sp, 'as MINORITY_M,')
-	wife.types <- paste(case_college, 'as COLLEGE_F,', case_minority, 'as MINORITY_F,')
-} else {
+if (age.only) {
 	ind.types <- '1 as COLLEGE, 1 as MINORITY,'
 	husb.types <- '1 as COLLEGE_M, 1 as MINORITY_M,'
 	wife.types <- '1 as COLLEGE_F, 1 as MINORITY_F,'
+} else {
+	ind.types <- paste(case_college, 'as COLLEGE,', case_minority, 'as MINORITY,')
+	husb.types <- paste(case_college_sp, 'as COLLEGE_M,', case_minority_sp, 'as MINORITY_M,')
+	wife.types <- paste(case_college, 'as COLLEGE_F,', case_minority, 'as MINORITY_F,')
 }
 
 ind.grp <- ', COLLEGE, MINORITY'
@@ -102,14 +107,14 @@ husb.mrg <- c("COLLEGE_M", "MINORITY_M")
 wife.mrg <- c("COLLEGE_F", "MINORITY_F")
 
 # complete grids to merge in
-if (static.types) {
-	ind.grid <- CJ(MSA = top.msa, SEX = 1:2, AGE = min.age:79, COLLEGE = 1:2, MINORITY = 1:2)
-	mar.grid <- CJ(MSA = top.msa, AGE_M = min.age:79, COLLEGE_M = 1:2, MINORITY_M = 1:2,
-				   AGE_F = min.age:79, COLLEGE_F = 1:2, MINORITY_F = 1:2)
-} else {
+if (age.only) {
 	ind.grid <- CJ(MSA = top.msa, SEX = 1:2, AGE = min.age:79, COLLEGE = 1, MINORITY = 1)
 	mar.grid <- CJ(MSA = top.msa, AGE_M = min.age:79, COLLEGE_M = 1, MINORITY_M = 1,
 				   AGE_F = min.age:79, COLLEGE_F = 1, MINORITY_F = 1)
+} else {
+	ind.grid <- CJ(MSA = top.msa, SEX = 1:2, AGE = min.age:79, COLLEGE = 1:2, MINORITY = 1:2)
+	mar.grid <- CJ(MSA = top.msa, AGE_M = min.age:79, COLLEGE_M = 1:2, MINORITY_M = 1:2,
+				   AGE_F = min.age:79, COLLEGE_F = 1:2, MINORITY_F = 1:2)
 }
 
 
@@ -215,26 +220,33 @@ qry_outmar <- paste('select m."MSA" as MSA,
                         'and acs."MIGRATE1D" >= 24 and acs."YEAR" >= 2012
                      group by m."MSA", acs."AGE_SP"', husb.grp,', acs."AGE"', wife.grp)
 
+
 # queries return dataframes, convert to data.table and merge into the complete grid
+print("Query: populations...")
 pop.dt <- merge(merge(data.table(dbGetQuery(db, qry_tot)), data.table(dbGetQuery(db, qry_sng)),
 					  all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg)),
 				ind.grid,
 				all.y=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg))
 
 # right join to force to grid (drops husbands > 79)
+print("Query: marriage stocks...")
 marriages <- merge(data.table(dbGetQuery(db, qry_marr)), mar.grid,
 				   all.y=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
 
+print("Query: marriage flows...")
 mar.flow <- merge(data.table(dbGetQuery(db, qry_marr_flow)), mar.grid,
 				  all.y=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
+print("Query: divorce flows...")
 div.flow <- merge(data.table(dbGetQuery(db, qry_div_flow)), ind.grid,
 				  all.y=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg))
 
+print("Query: individual migration outflows...")
 ind.mig <- merge(merge(data.table(dbGetQuery(db, qry_inflow)), data.table(dbGetQuery(db, qry_outflow)),
 					   all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg)),
 				 ind.grid,
 				 all.y=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg))
 
+print("Query: marriage migration outflows...")
 mar.mig <- merge(merge(data.table(dbGetQuery(db, qry_inmar)), data.table(dbGetQuery(db, qry_outmar)),
 					   all=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg)),
 				 mar.grid,
@@ -252,7 +264,8 @@ ind.mig[, NET_OUTFLOW_RAW := OUTFLOW_RAW - INFLOW_RAW]
 mar.mig[, NET_OUTFLOW_RAW := OUTFLOW_RAW - INFLOW_RAW]
 
 
-### Smoothing by Non-parametric Regression ###
+
+##### Smoothing by Non-parametric Regression #####
 
 # npregbw cv methods give following bandwidths on age per msa
 #	* wom.sng: 2.2
@@ -269,6 +282,11 @@ for (col in ind.mrg) set(ind.mig, j = col, value = factor(ind.mig[[col]]))
 for (col in c(husb.mrg, wife.mrg)) set(marriages, j = col, value = factor(marriages[[col]]))
 for (col in c(husb.mrg, wife.mrg)) set(mar.flow, j = col, value = factor(mar.flow[[col]]))
 for (col in c(husb.mrg, wife.mrg)) set(mar.mig, j = col, value = factor(mar.mig[[col]]))
+
+
+### Individuals ###
+
+print("Starting non-parametric regression on individual masses.")
 
 if (ind.bw.cv) {
 	# cross-validated bandwidth with sample splitting on categoricals
@@ -328,72 +346,9 @@ ind.mig <- merge(ind.mig[AGE < max.age], trm.ind.mig,
 				 all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg, "NET_OUTFLOW"))
 
 
-#	But npreg didn't get past 1/5 in 15h. The full grid (zero-filled) is that much larger.
-#	Idea: first do a fast search with generous tolerances, then do a precise search from that starting value 
-
-# marriages
-
-# sample splitting, 16 categorical combos: tolerable (on the order of 10m per group but 16 groups per MSA)
-#	* using all 6 variables (product kernels) is extremely slow due to curse of dimensionality (multiple days per MSA)
-#	* try: use a shell script to launch 10 different R instances with one MSA each
+### Marriages ###
 
 print("Starting non-parametric regression on couple masses.")
-
-## Hand-rolled bivariate local-linear regression with unconstrained bandwidth matrix
-# allows for diagonal orientation of kernel, to smooth more along joint aging diagonal
-
-# inverse function for positive definite matrices
-matrix.inv <- function(A) {chol2inv(chol(A))}
-
-# matrix sqrt function
-matrix.sqrt <- function(A) {
-    if (length(A) == 1)
-        return(sqrt(A))
-    sva <- svd(A)
-    if (min(sva$d) >= 0)
-        Asqrt <- sva$u %*% diag(sqrt(sva$d)) %*% t(sva$v)
-    else
-        stop("Matrix square root is not defined")
-  return(Asqrt)
-}
-
-# standard bivariate normal density function
-K <- function(x) {
-	# x: nx2 matrix
-	return(1.0/(2*pi) * exp(-0.5 * rowSums(x^2)))
-}
-
-# bivariate kernel with unrestricted bandwidth matrix
-K.H <- function(x, y, H) {
-	# x,y: vectors
-    Hinv12 <- matrix.sqrt(matrix.inv(H))
-    z <- cbind(x, y)
-    return(1.0/sqrt(det(H)) * K(z %*% t(Hinv12)))
-}
-
-# local-cubic bivariate regression
-loc.poly.reg <- function(x, y, z, H) {
-    # x,y: domain vectors; z: value vector; H: bandwidth matrix
-    n <- length(z)
-    smth <- vector(length = n) # empty vector for smoothed z values
-    
-    # for each row: get kernel weights for all datapoints
-    for (i in 1:n) {
-		xm <- x - x[i]
-		ym <- y - y[i]
-        X <- cbind(1, xm, ym,
-				   xm^2, ym^2, xm*ym,
-				   xm^3, ym^3, xm^2*ym, xm*ym^2)
-        W <- K.H(xm, ym, H) # vector of kernel weights
-        tXW <- t(X * W) # element-wise multiply each col of X by W
-
-		# smoothed value is the intercept of local regression: (kernel) weighted least-squares
-        theta.i <- solve(tXW %*% X, tXW %*% z)
-        smth[i] <- theta.i[1]
-    }
-    return(smth)
-}
-
 
 if (mar.bw.cv) {
 	# cross-validated bandwidth with sample splitting
@@ -418,13 +373,16 @@ if (mar.bw.cv) {
 			 by = c("MSA", husb.mrg, wife.mrg)]
 } else {
 	# manual age-only smoothing with kernel oriented along joint aging axis
-	marriages[, MASS := loc.poly.reg(AGE_M, AGE_F, RAW_MASS, pop.bw),
+	print("Smoothing marriage stocks...")
+	marriages[, MASS := loc.poly.reg(AGE_M, AGE_F, RAW_MASS, pop.bw, order = 3),
 			  by = c("MSA", husb.mrg, wife.mrg)]
 
-	mar.flow[, FLOW := loc.poly.reg(AGE_M, AGE_F, RAW_MF, flow.bw),
+	print("Smoothing marriage flows...")
+	mar.flow[, FLOW := loc.poly.reg(AGE_M, AGE_F, RAW_MF, flow.bw, order = 3),
 			 by = c("MSA", husb.mrg, wife.mrg)]
 
-	mar.mig[, NET_OUTFLOW := loc.poly.reg(AGE_M, AGE_F, NET_OUTFLOW_RAW, mig.bw),
+	print("Smoothing marriage migration outflows...")
+	mar.mig[, NET_OUTFLOW := loc.poly.reg(AGE_M, AGE_F, NET_OUTFLOW_RAW, mig.bw, order = 3),
 			by = c("MSA", husb.mrg, wife.mrg)]
 }
 
