@@ -82,8 +82,8 @@ end
 
 "Minimum distance loss function per MSA."
 function loss_msa(MF::Array, DF_m::Array, DF_f::Array,
-				  dMF::Array, dDF_m::Array, dDF_f::Array,
-				  wgt_men::Array, wgt_wom::Array, wgt_mar::Array)
+                  dMF::Array, dDF_m::Array, dDF_f::Array,
+                  wgt_men::Array, wgt_wom::Array, wgt_mar::Array)
 	# assumes input arrays are from ages 26-64: already dropped min and max
 
 	# proportion weights sum to 1 for each set of moments
@@ -106,12 +106,12 @@ end
 
 "Objective function to minimize: distance between model and data moments."
 function loss(ζx::Vector, ζd::Vector, ψm_ψf::Array,
-			  mar_all::Dict{AbstractString,Array}, um_uf_all::Dict{AbstractString,Array},
-			  mar_out_all::Dict{AbstractString,Array},
-	          dMF::Dict{AbstractString,Array},
-			  dDF_m::Dict{AbstractString,Array}, dDF_f::Dict{AbstractString,Array},
-	          wgt_men::Dict{AbstractString,Array}, wgt_wom::Dict{AbstractString,Array},
-			  wgt_mar_all::Dict{AbstractString,Array})
+              mar_all::Dict{AbstractString,Array}, um_uf_all::Dict{AbstractString,Array},
+              mar_out_all::Dict{AbstractString,Array},
+              dMF::Dict{AbstractString,Array},
+              dDF_m::Dict{AbstractString,Array}, dDF_f::Dict{AbstractString,Array},
+              wgt_men::Dict{AbstractString,Array}, wgt_wom::Dict{AbstractString,Array},
+              wgt_mar_all::Dict{AbstractString,Array})
 
 	ξ = build_ξ(ζx) # construct ξ
 	δ = build_δ(ζd) # construct ξ
@@ -124,15 +124,15 @@ function loss(ζx::Vector, ζd::Vector, ψm_ψf::Array,
 
 		# model_moments returns ages 26-65 (only need age 25 for marriage inflows)
 		MF, DF_m, DF_f = model_moments(λ, δ, ψm_ψf, mar_all["$msa"],
-									   um_uf_all["$msa"][2:end,:,:,2:end,:,:],
-									   mar_out_all["$msa"][2:end,:,:,2:end,:,:])
+		                               um_uf_all["$msa"][2:end,:,:,2:end,:,:],
+		                               mar_out_all["$msa"][2:end,:,:,2:end,:,:])
 
 		# feed trimmed (age 26-64) moments and weights to loss function
 		lsM, lsDm, lsDf  = loss_msa(MF[1:end-1,:,:,1:end-1,:,:], DF_m[1:end-1,:,:], DF_f[1:end-1,:,:],
-									dMF["$msa"][2:end-1,:,:,2:end-1,:,:],
-									dDF_m["$msa"][2:end-1,:,:], dDF_f["$msa"][2:end-1,:,:],
-									wgt_men["$msa"][2:end-1,:,:], wgt_wom["$msa"][2:end-1,:,:],
-									wgt_mar_all["$msa"][2:end-1,:,:,2:end-1,:,:])
+		                            dMF["$msa"][2:end-1,:,:,2:end-1,:,:],
+		                            dDF_m["$msa"][2:end-1,:,:], dDF_f["$msa"][2:end-1,:,:],
+		                            wgt_men["$msa"][2:end-1,:,:], wgt_wom["$msa"][2:end-1,:,:],
+		                            wgt_mar_all["$msa"][2:end-1,:,:,2:end-1,:,:])
 		loss_MF += lsM
 		loss_DF += lsDm + lsDf
 	end
@@ -146,31 +146,31 @@ end
 "Objective function to pass to NLopt: requires vectors for `x` and `grad`."
 function loss_nlopt(x::Vector, grad::Vector)
 	return sum(loss(x[1:length(ζx_0)], x[end-length(ζd_0)+1:end],
-					ψm_ψf, marriages, sng_outer, mar_outflow,
-					MF, men_DF, wom_DF,
-					men_tot, wom_tot, pop_outer))
+	                ψm_ψf, marriages, sng_outer, mar_outflow,
+	                MF, men_DF, wom_DF,
+	                men_tot, wom_tot, pop_outer))
 end
 
 "Objective function to pass to BlackBoxOptim: requires vector for `x`."
 function loss_bbopt(x::Vector)
 	return sum(loss(x[1:length(ζx_0)], x[end-length(ζd_0)+1:end],
-					ψm_ψf, marriages, sng_outer, mar_outflow,
-					MF, men_DF, wom_DF,
-					men_tot, wom_tot, pop_outer))
+	                ψm_ψf, marriages, sng_outer, mar_outflow,
+	                MF, men_DF, wom_DF,
+	                men_tot, wom_tot, pop_outer))
 end
 
 "Parameter grid search: Given ζ1, sweep through other parameters and return csv string."
 function obj_landscaper(ζx1::Real, dg, #zx2g, zx3g, zx4g, zx5g, zd1g, zd2g, zd3g, zd4g, zd5g,
-						ψm_ψf, marriages, sng_outer, mar_outflow, MF, men_DF, wom_DF,
-						men_tot, wom_tot, pop_outer)
+                        ψm_ψf, marriages, sng_outer, mar_outflow, MF, men_DF, wom_DF,
+                        men_tot, wom_tot, pop_outer)
 	res = "" # results string
 	#for ζx2 in zx2g, ζx3 in zx3g, ζx4 in zx4g, ζx5 in zx5g,
 	#	ζd1 in zd1g, ζd2 in zd2g, ζd3 in zd3g, ζd4 in zd4g, ζd5 in zd5g
 	for δ in dg
 		lMF, lDF = loss([ζx1], [δ], #ζx2, ζx3, ζx4, ζx5],
-						#[ζd1, ζd2, ζd3, ζd4, ζd5],
-						ψm_ψf, marriages, sng_outer, mar_outflow,
-						MF, men_DF, wom_DF, men_tot, wom_tot, pop_outer)
+		                #[ζd1, ζd2, ζd3, ζd4, ζd5],
+		                ψm_ψf, marriages, sng_outer, mar_outflow,
+		                MF, men_DF, wom_DF, men_tot, wom_tot, pop_outer)
 		#res *= string(ζx1, ",", ζx2, ",", ζx3, ",", ζx4, ",", ζx5, ",", ζd1, ",", ζd2, ",", ζd3, ",", ζd4, ",", ζd5, ",", lMF, ",", lDF, ",", lMF+lDF, "\n")
 		res *= string(ζx1, ",", δ, ",", lMF, ",", lDF, ",", lMF+lDF, "\n")
 	end

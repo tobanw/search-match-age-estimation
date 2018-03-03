@@ -21,11 +21,11 @@ function outer_op(op::Function, men::Array, wom::Array)
 end
 
 mm_eqm = [SearchClosed(ξ_mc, δ_mc, r, 1,
-					   θ_mc, θ_mc,
-					   men_tot["$msa"][2:end,:,:],
-					   wom_tot["$msa"][2:end,:,:],
-					   h_mc; CRS=true, verbose=true, step_size=0.3)
-		  for msa in top_msa] 
+                       θ_mc, θ_mc,
+                       men_tot["$msa"][2:end,:,:],
+                       wom_tot["$msa"][2:end,:,:],
+                       h_mc; CRS=true, verbose=true, step_size=0.3)
+          for msa in top_msa] 
 
 # parallel version segfaults (nlsolve issue) even with no workers
 #mm_jobs = [@spawn SearchClosed(ξ_mc, δ_mc, r, 1,...
@@ -39,8 +39,8 @@ for (msa, mm) in zip(top_msa, mm_eqm) # simulate a single marriage market (NYC)
 	sng_conv["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
 
 	MF["$msa"][2:end,:,:,2:end,:,:] = compute_MF(mm.λ * ones(mm.α),
-									   sng_conv["$msa"][2:end,:,:,2:end,:,:],
-									   mm.α)
+	                                             sng_conv["$msa"][2:end,:,:,2:end,:,:],
+	                                             mm.α)
 	marriages["$msa"][2:end,:,:,2:end,:,:] = MF["$msa"][2:end,:,:,2:end,:,:] ./ (ψm_ψf + mm.δ * (1 - mm.α)) # back out eqm marriage measures
 
 	men_DF["$msa"][2:end,:,:] = compute_DF_m(mm.δ, mm.α, marriages["$msa"][2:end,:,:,2:end,:,:])
@@ -53,15 +53,15 @@ end
 # NOTE: this only overwrites the MSAs in top_msa, so might leave some originals
 jldopen("results/sim-pops-static.jld", "w") do file  # open file for saving julia data
 	# dictionaries: stocks per MSA
-    write(file, "men_sng", men_sng)
-    write(file, "wom_sng", wom_sng)
-    write(file, "marriages", marriages)
-    write(file, "sng_conv", sng_conv)
+	write(file, "men_sng", men_sng)
+	write(file, "wom_sng", wom_sng)
+	write(file, "marriages", marriages)
+	write(file, "sng_conv", sng_conv)
 
 	# dictionaries: flows per MSA
-    write(file, "MF", MF)
-    write(file, "men_DF", men_DF)
-    write(file, "wom_DF", wom_DF)
+	write(file, "MF", MF)
+	write(file, "men_DF", men_DF)
+	write(file, "wom_DF", wom_DF)
 end
 
 # load on all workers

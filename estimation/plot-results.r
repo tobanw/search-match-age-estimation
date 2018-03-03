@@ -11,8 +11,8 @@ plot.path <- "results/result-plots/dynamic-const/racedu24/" # output dir: plots
 img.ext <- ".png"
 
 # bandwidth matrix for smoothed prod plots
-prod.bw.cov <- 0.5
-prod.bw <- matrix(8 * c(1, prod.bw.cov, prod.bw.cov, 1), nrow = 2, ncol = 2)
+prod.bw.cor <- 0.5
+prod.bw <- matrix(8 * c(1, prod.bw.cor, prod.bw.cor, 1), nrow = 2, ncol = 2)
 # order of local polynomial for smoothing
 prod.smooth.order <- 1
 

@@ -7,7 +7,7 @@ using DataFrames, Query
 
 "Construct and fill array for individual values in one marriage	market."
 function indiv_array(val_dt::DataFrame)
-    # instantiate array of zeros to fill: age, edu, race
+	# instantiate array of zeros to fill: age, edu, race
 	valarray = zeros(n_ages+1,2,2) # include age 25 for inflows
 
     # fill counts
@@ -25,7 +25,7 @@ end # indiv_array
 "Construct and fill array for couple masses in one marriage	market."
 function marr_array(counts::DataFrame)
 	# assumes counts has 3+3 type cols plus masses (no MSA or other cols)
-    # instantiate array of zeros to fill
+	# instantiate array of zeros to fill
 	massarray = zeros(n_ages+1,2,2,n_ages+1,2,2) # include age 25 for inflows
 
     # fill counts
@@ -107,62 +107,62 @@ wom_DF = Dict{AbstractString, Array}()
 for msa in top_msa
 	# annual population arrays (NOTE: includes age 25)
 	men_sng["$msa"] = loader(indiv_array(@from i in df_pop begin
-											 @where i.MSA == msa && i.SEX == 1
-											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.SNG}
-											 @collect DataFrame
-										 end))
+	                                     @where i.MSA == msa && i.SEX == 1
+	                                     @select {i.AGE, i.COLLEGE, i.MINORITY, i.SNG}
+	                                     @collect DataFrame
+	                                     end))
 
 	wom_sng["$msa"] = loader(indiv_array(@from i in df_pop begin
-											 @where i.MSA == msa && i.SEX == 2
-											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.SNG}
-											 @collect DataFrame
-										 end))
+	                                     @where i.MSA == msa && i.SEX == 2
+	                                     @select {i.AGE, i.COLLEGE, i.MINORITY, i.SNG}
+	                                     @collect DataFrame
+	                                     end))
 
 	men_tot["$msa"] = loader(indiv_array(@from i in df_pop begin
-											 @where i.MSA == msa && i.SEX == 1
-											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.POP}
-											 @collect DataFrame
-										 end))
+	                                     @where i.MSA == msa && i.SEX == 1
+	                                     @select {i.AGE, i.COLLEGE, i.MINORITY, i.POP}
+	                                     @collect DataFrame
+	                                     end))
 
 	wom_tot["$msa"] = loader(indiv_array(@from i in df_pop begin
-											 @where i.MSA == msa && i.SEX == 2
-											 @select {i.AGE, i.COLLEGE, i.MINORITY, i.POP}
-											 @collect DataFrame
-										 end))
+	                                     @where i.MSA == msa && i.SEX == 2
+	                                     @select {i.AGE, i.COLLEGE, i.MINORITY, i.POP}
+	                                     @collect DataFrame
+	                                     end))
 
 	marriages["$msa"] = loader(marr_array(@from i in df_marriages begin
-											  @where i.MSA == msa
-											  @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
-											  @collect DataFrame
-										  end))
+	                                      @where i.MSA == msa
+	                                      @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.MASS}
+	                                      @collect DataFrame
+	                                      end))
 
 	mar_outflow["$msa"] = loader(marr_array(@from i in df_migration begin
-												@where i.MSA == msa
-												@select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.NET_OUTFLOW}
-												@collect DataFrame
-										  end))
+	                                        @where i.MSA == msa
+	                                        @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.NET_OUTFLOW}
+	                                        @collect DataFrame
+	                                        end))
 
 	sng_outer["$msa"] = outer_op(*, men_sng["$msa"], wom_sng["$msa"])
 	pop_outer["$msa"] = outer_op(*, men_tot["$msa"], wom_tot["$msa"])
 
 	# annual flow arrays
 	MF["$msa"] = loader(marr_array(@from i in df_MF begin
-									   @where i.MSA == msa
-									   @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.FLOW}
-									   @collect DataFrame
-								   end))
+	                               @where i.MSA == msa
+	                               @select {i.AGE_M, i.COLLEGE_M, i.MINORITY_M, i.AGE_F, i.COLLEGE_F, i.MINORITY_F, i.FLOW}
+	                               @collect DataFrame
+	                               end))
 
 	men_DF["$msa"] = loader(indiv_array(@from i in df_DF begin
-											@where i.MSA == msa && i.SEX == 1
-											@select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-											@collect DataFrame
-										end))
+	                                    @where i.MSA == msa && i.SEX == 1
+	                                    @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
+	                                    @collect DataFrame
+	                                    end))
 
 	wom_DF["$msa"] = loader(indiv_array(@from i in df_DF begin
-											@where i.MSA == msa && i.SEX == 2
-											@select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
-											@collect DataFrame
-										end))
+	                                    @where i.MSA == msa && i.SEX == 2
+	                                    @select {i.AGE, i.COLLEGE, i.MINORITY, i.FLOW}
+	                                    @collect DataFrame
+	                                    end))
 end
 
 # load death arrival rates
@@ -179,17 +179,17 @@ jldopen(pop_file, "w") do file  # open file for saving julia data
 	write(file, "psi_outer", ψm_ψf)
 
 	# dictionaries: stocks per MSA
-    write(file, "men_sng", men_sng)
-    write(file, "wom_sng", wom_sng)
-    write(file, "men_tot", men_tot)
-    write(file, "wom_tot", wom_tot)
-    write(file, "marriages", marriages)
-    write(file, "mar_outflow", mar_outflow)
-    write(file, "sng_outer", sng_outer)
-    write(file, "pop_outer", pop_outer)
+	write(file, "men_sng", men_sng)
+	write(file, "wom_sng", wom_sng)
+	write(file, "men_tot", men_tot)
+	write(file, "wom_tot", wom_tot)
+	write(file, "marriages", marriages)
+	write(file, "mar_outflow", mar_outflow)
+	write(file, "sng_outer", sng_outer)
+	write(file, "pop_outer", pop_outer)
 
 	# dictionaries: flows per MSA
-    write(file, "MF", MF)
-    write(file, "men_DF", men_DF)
-    write(file, "wom_DF", wom_DF)
+	write(file, "MF", MF)
+	write(file, "men_DF", men_DF)
+	write(file, "wom_DF", wom_DF)
 end

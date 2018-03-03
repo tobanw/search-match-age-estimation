@@ -155,9 +155,9 @@ function compute_production(δ::Array, ψ_m::Array, ψ_f::Array, d::Array, dc1μ
 
 		# truncate indices at T to handle boundary (except for T,T case)
 		f[xy] = (s[xy] + v_m[a,x...] + v_f[b,y...] - δ[xy] * dc1μ[xy]
-				 - ρAB * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # ρAB shuts off s^{T+1,T+1} case
-				 - ρA * v_m[min(a+1,end),x...] / (r + ρa + ψ_m[min(a+1,end),x...])
-				 - ρB * v_f[min(b+1,end),y...] / (r + ρb + ψ_f[min(b+1,end),y...])) # ρB shuts off V^{T+1}
+		         - ρAB * d[min(a+1,end),x...,min(b+1,end),y...] * s[min(a+1,end),x...,min(b+1,end),y...] # ρAB shuts off s^{T+1,T+1} case
+		         - ρA * v_m[min(a+1,end),x...] / (r + ρa + ψ_m[min(a+1,end),x...])
+		         - ρB * v_f[min(b+1,end),y...] / (r + ρb + ψ_f[min(b+1,end),y...])) # ρB shuts off V^{T+1}
 	end #for
 
 	return f

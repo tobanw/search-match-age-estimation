@@ -1,9 +1,12 @@
 ### USAGE OPTIONS ###
 
+# NOTE: some settings are in the @everywhere block below
+#	* set `no_edu` and `no_race`
+#	* set `min_age` and `max_age`
+
 # select model
 static_age = false # whether to use model with static age or with dynamic aging process
 monte_carlo = false # use population supplies to compute equilibria with MarriageMarkets; static only for now
-#NOTE: set `no_edu` and `no_race` in @everywhere block below
 
 # select functional forms for xi and delta; if none selected, then constant ζ[1] is used
 interpolated_xi = false
@@ -20,7 +23,7 @@ compute_np_obj = true
 
 data_dir = "data/racedu24/"
 pop_file = "results/populations.jld"
-save_path = "results/est-dyn-const-bw24.jld"
+save_path = "results/est-dyn-const-racedu-bw24.jld"
 csv_dir = "results/estimates-csv/dynamic-const/racedu24/"
 
 # select optimizer for arrival rate estimation
@@ -53,12 +56,12 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 
 	# NOTE: must match `max.age` from `smooth-pop.r` and mortality data
 	const max_age = 65 # terminal age (inclusive)
-	const min_age = 25 # initial age (excluded)
-	const n_ages = max_age - min_age # excluding 25
+	const min_age = 25 # initial age (excluded: 18 or 25 with edu)
+	const n_ages = max_age - min_age # excluding min_age (inflow group)
 
 	# NOTE: must match `top.msa` from `smooth-pop.r` and `smooth-flows.r`
 	const top_msa = (35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460,
-					 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
+	                 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
 	const n_msa = length(top_msa)
 
 	if no_edu && no_race
@@ -192,7 +195,7 @@ Interpolated ξ:
 Loss: 1193.6704652231151
 """
 
-ζx_0 = [2.5]
+ζx_0 = [3.0]
 ζd_0 = [0.02]
 
 
@@ -226,7 +229,7 @@ if grid_search
 	ζ2grid = linspace(0.1, 0.8, 6) # 4 age 8 knot (relative to level)
 	ζ3grid = linspace(0.01, 0.25, 3) # 3 age 20 knot
 	ζ4grid = linspace(0.001, 0.25, 3) # 3 age 40 knot
-	#gap_knots = ([-39, -15, -2, 2, 6, 19, 39])
+	gap_knots = ([-39, -15, -2, 2, 6, 19, 39])
 	ζ5grid = linspace(0.001, 0.05, 3) # 3 (age gap: -39)
 	ζ6grid = linspace(0.01, 0.1, 3) # 3 (age gap -15)
 	ζ7grid = linspace(0.5, 1.2, 4) # 3 (age gap -2)
@@ -238,9 +241,9 @@ if grid_search
 
 	# list of jobs: for each ζ1
 	gs_jobs = [(@spawn obj_landscaper(ζx1,# ζx2grid, ζx3grid, ζx4grid, ζx5grid,
-									  ζd1grid,# ζd2grid, ζd3grid, ζd4grid, ζd5grid,
-									  ψm_ψf, marriages, sng_outer, mar_outflow, MF, men_DF, wom_DF,
-									  men_tot, wom_tot, pop_outer)) for ζx1 in ζx1grid]
+	                                  ζd1grid,# ζd2grid, ζd3grid, ζd4grid, ζd5grid,
+	                                  ψm_ψf, marriages, sng_outer, mar_outflow, MF, men_DF, wom_DF,
+	                                  men_tot, wom_tot, pop_outer)) for ζx1 in ζx1grid]
 
 	result_list = [fetch(job) for job in gs_jobs] # list of strings
 	result_str = join(result_list) # merge into single string
@@ -281,11 +284,11 @@ if estimate_rates # run optimizer for MD estimation
 		using BlackBoxOptim
 		# NES algos can be run in parallel
 		resbb = bboptimize(loss_bbopt; Method=:xnes,# PopulationSize=32, Workers = workers(),
-						   SearchRange = [(0.5, 1.2),# (1.5, 5.5), (0, 0.8), (0, 0.8),
-										  #(6.,39.), (0, 0.1),
-										  (0.01, 0.04)],
-						   MinDeltaFitnessTolerance = 1e-3, MaxSteps = 200000,
-						   TraceInterval = 30.0)
+		                   SearchRange = [(0.5, 1.2),# (1.5, 5.5), (0, 0.8), (0, 0.8),
+		                                  (6.,39.), (0, 0.1),
+		                                  (0.01, 0.04)],
+		                   MinDeltaFitnessTolerance = 1e-3, MaxSteps = 200000,
+		                   TraceInterval = 30.0)
 
 		min_x = best_candidate(resbb)
 		min_f = best_fitness(resbb)
@@ -342,15 +345,15 @@ if compute_np_obj
 
 		# match probability (α)
 		alpha_raw["$msa"] = compute_raw_alpha(λ, δ, ψm_ψf, marriages["$msa"],
-									  sng_outer["$msa"][2:end,:,:,2:end,:,:],
-									  mar_outflow["$msa"][2:end,:,:,2:end,:,:])
+		                                      sng_outer["$msa"][2:end,:,:,2:end,:,:],
+		                                      mar_outflow["$msa"][2:end,:,:,2:end,:,:])
 
 		# truncated α
 		alpha["$msa"] = clamp.(alpha_raw["$msa"], 1e-6, 1 - 1e-6) # enforce 0 < α < 1
 
 		mMF["$msa"], mDF_m["$msa"], mDF_f["$msa"] = model_moments(λ, δ, ψm_ψf, marriages["$msa"],
-																  sng_outer["$msa"][2:end,:,:,2:end,:,:],
-																  mar_outflow["$msa"][2:end,:,:,2:end,:,:])
+		                                                          sng_outer["$msa"][2:end,:,:,2:end,:,:],
+		                                                          mar_outflow["$msa"][2:end,:,:,2:end,:,:])
 
 		if static_age
 			# marital surplus (S)
@@ -377,7 +380,7 @@ if compute_np_obj
 
 			# marital production (f)
 			production["$msa"] = compute_production(δ, ψ_m, ψ_f, d, dc1μ, surplus["$msa"],
-													men_val["$msa"], wom_val["$msa"])
+			                                        men_val["$msa"], wom_val["$msa"])
 		end
 
 		# average across MSAs
@@ -408,8 +411,8 @@ if compute_np_obj
 
 	function msa_martab(d::Dict)
 		df = DataFrame(AGE_M = Int64[], COLLEGE_M = Int64[], MINORITY_M = Int64[],
-					   AGE_F = Int64[], COLLEGE_F = Int64[], MINORITY_F = Int64[],
-					   MSA = Int64[], VALUE = Float64[])
+		               AGE_F = Int64[], COLLEGE_F = Int64[], MINORITY_F = Int64[],
+		               MSA = Int64[], VALUE = Float64[])
 
 		for msa in top_msa
 			for idx in CartesianRange(size(d["$msa"]))
@@ -422,7 +425,7 @@ if compute_np_obj
 
 	function msa_indtab(d::Dict)
 		df = DataFrame(AGE = Int64[], COLLEGE = Int64[], MINORITY = Int64[],
-					   MSA = Int64[], VALUE = Float64[])
+		               MSA = Int64[], VALUE = Float64[])
 
 		for msa in top_msa
 			for idx in CartesianRange(size(d["$msa"]))

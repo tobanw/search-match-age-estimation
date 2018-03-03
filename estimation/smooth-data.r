@@ -33,14 +33,16 @@ ind.bw.cv <- TRUE # set to TRUE to use bw=cv.aic
 ind.bw <- 1.0
 
 mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
-# bws to use for manual age smoothing
-pop.bw.var <- 24 # bandwidth (16 for age-only, 24 with rac-edu)
-pop.bw.cov <- 0.98 # how diagonal is kernel? values selected by manual validation
-pop.bw <- matrix(pop.bw.var * c(1, pop.bw.cov, pop.bw.cov, 1), nrow = 2, ncol = 2)
-flow.bw.cov <- 0.9
-flow.bw <- matrix(pop.bw.var * c(1, flow.bw.cov, flow.bw.cov, 1), nrow = 2, ncol = 2)
-mig.bw.cov <- 0.85
-mig.bw <- matrix(pop.bw.var * c(1, mig.bw.cov, mig.bw.cov, 1), nrow = 2, ncol = 2)
+# bandwidth matrices to use for manual bivariate age smoothing
+#	* values tuned by manual validation
+pop.bw.var <- 24 # bandwidth matrix variance (16 for age-only, 24 with rac-edu)
+pop.bw.cor <- 0.98 # bandwidth matrix correlation (diagonal orientation)
+flow.bw.cor <- 0.9
+mig.bw.cor <- 0.85
+
+pop.bw <- matrix(pop.bw.var * c(1, pop.bw.cor, pop.bw.cor, 1), nrow = 2, ncol = 2)
+flow.bw <- matrix(pop.bw.var * c(1, flow.bw.cor, flow.bw.cor, 1), nrow = 2, ncol = 2)
+mig.bw <- matrix(pop.bw.var * c(1, mig.bw.cor, mig.bw.cor, 1), nrow = 2, ncol = 2)
 
 # top 20 largest MSAs
 top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)
