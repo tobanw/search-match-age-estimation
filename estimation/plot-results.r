@@ -4,10 +4,10 @@ library(ggplot2)
 source("local-regression.r") # load local-polynomial regression function
 
 # SELECT model
-age.only <- FALSE
-data.path <- "data/racedu24/" # input dir: smoothed pop data
-estim.path <- "results/estimates-csv/dynamic-const/racedu24/" # input dir: model estimates
-plot.path <- "results/result-plots/dynamic-const/racedu24/" # output dir: plots
+age.only <- TRUE
+data.path <- "data/ageonly16/" # input dir: smoothed pop data
+estim.path <- "results/estimates-csv/dynamic-const/ageonly16/" # input dir: model estimates
+plot.path <- "results/result-plots/dynamic-const/ageonly16/" # output dir: plots
 img.ext <- ".png"
 
 # bandwidth matrix for smoothed prod plots
@@ -122,7 +122,7 @@ error.fill.grad <- scale_fill_gradient2(low = "navy", mid = "white", high = "red
 flow.color.grad <- scale_colour_gradient(low = "navy", high = "red", name = "Flow")
 stock.color.grad <- scale_colour_gradient(low = "navy", high = "red", name = "Stock")
 alpha.color.grad <- scale_colour_gradient2(low = "navy", mid = "red", high = "white", midpoint = 0.5, name = "Probability")
-prod.color.grad <- scale_colour_gradient2(low = "navy", mid = "red", high = "white", midpoint = 0, name = "Utility")
+prod.color.grad <- scale_colour_gradient2(low = "navy", mid = "red", high = "white", midpoint = 0, name = "Output")
 
 
 # lifecycle prod for homogamous couples with 2 year age gap (from smoothed global average f)
@@ -131,7 +131,7 @@ if (age.only) {
 			prod.dt[MSA %in% top.cities & AGE_M < max.age-1 & AGE_F == AGE_M - 2],
 			aes(x = AGE_F, y = SMOOTH)) +
 		geom_line(size = 1) +
-		labs(x = "Wife age", y = "Utility") +
+		labs(x = "Wife age", y = "Output") +
 		facet_wrap(~CITY, scales = "free_y")
 
 	plots[["prod_smooth_lifecycle"]] <- p
@@ -143,7 +143,7 @@ if (age.only) {
 			        by = .(AGE_M, AGE_F)],
 			aes(x = AGE_F, y = AVG)) +
 		geom_line(size = 1) +
-		labs(x = "Wife age", y = "Utility")
+		labs(x = "Wife age", y = "Output")
 
 	plots[["prod_smooth_global_lifecycle"]] <- p
 	ggsave(paste0("prod-smooth-global-lifecycle", img.ext), path = plot.path)
@@ -156,7 +156,7 @@ if (age.only) {
 		scale_color_discrete(name = "Types",
 		                     breaks = c('11',    '12',   '21',   '22'),
 		                     labels = c("NC,NM", "NC,M", "C,NM", "C,M")) +
-		labs(x = "Wife age", y = "Utility") +
+		labs(x = "Wife age", y = "Output") +
 		facet_wrap(~CITY, scales = "free_y")
 
 	plots[["prod_smooth_lifecycle"]] <- p
@@ -171,7 +171,7 @@ if (age.only) {
 		scale_color_discrete(name = "Types",
 		                     breaks = c('11',    '12',   '21',   '22'),
 		                     labels = c("NC,NM", "NC,M", "C,NM", "C,M")) +
-		labs(x = "Wife age", y = "Utility")
+		labs(x = "Wife age", y = "Output")
 
 	plots[["prod_smooth_global_lifecycle"]] <- p
 	ggsave(paste0("prod-smooth-global-lifecycle", img.ext), path = plot.path)

@@ -17,7 +17,7 @@ plots <- readRDS(file = args[2])
 
 for (name in names(plots)) {
 	tikz(file = file.path(out.dir, paste(name, "tex", sep = ".")),
-		 width = 6.5, height = 5.5)
+	     width = 5.5, height = 4.65)
 	print(plots[[name]]) # doesn't work without print()
 	dev.off()
 }
