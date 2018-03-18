@@ -18,12 +18,15 @@ num.bin <- 8
 
 # reusable a=b line
 xy.line <- geom_segment(x = 0, y = 0, xend = 10, yend = 10, colour = "red", linetype = 2, size = 1)
+# consistent color with prod plots
+prod.color.grad <- scale_colour_gradient(low = "navy", high = "red")
 
 # a=b symmetry
 p.left <- ggplot(dt[, .(a, b, Z = K.H(a, b, H))],
 		aes(x=a, y=b, z=Z)) +
 	stat_contour(aes(colour=..level..), bins=num.bin, size=0.5) +
 	xy.line + expand_limits(x = 10, y = 10) +
+	prod.color.grad +
 	# no legend or axis ticks
 	guides(colour=F) +
 	theme(axis.line = element_blank(), axis.ticks = element_blank(),
@@ -38,6 +41,7 @@ p.mid <- ggplot(dt[, .(a, b, Z = K.H(a, b + k, H))],
 		aes(x=a, y=b, z=Z)) +
 	stat_contour(aes(colour=..level..), bins=num.bin, size=0.5) +
 	xy.line + expand_limits(x = 10, y = 10) +
+	prod.color.grad +
 	geom_segment(x = k, y = 0, xend = 10, yend = 10 - k, colour = "red", size = 0.8) +
 	# no legend or axis ticks
 	guides(colour=F) +
@@ -53,6 +57,7 @@ p.right <- ggplot(dt[, .(a, b, Z = K.H(a, b * q, H))],
 		aes(x=a, y=b, z=Z)) +
 	stat_contour(aes(colour=..level..), bins=num.bin, size=0.5) +
 	xy.line + expand_limits(x = 10, y = 10) +
+	prod.color.grad +
 	geom_segment(x = 0, y = 0, xend = 10, yend = 10 / q, colour = "red", size = 0.8) +
 	# no legend or axis ticks
 	guides(colour=F) +
@@ -68,4 +73,4 @@ tikz(file = file.path(out.dir, paste("prod_examples", "tex", sep = ".")),
 grid.arrange(p.left, p.mid, p.right,
              ncol = 3,
              bottom = "Husband age", left = "Wife age")
-dev.off()
+

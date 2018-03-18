@@ -1,14 +1,34 @@
+# Command line usage: `Rscript plot-results.r model`
+#	model: ageonly or racedu
+
+# command line args
+model = commandArgs(trailingOnly=TRUE)
+
+# SELECT model: ageonly16 or racedu24
+if (model == "ageonly") {
+	model.dir <- "ageonly16"
+	age.only <- TRUE
+} else if (model == "racedu") {
+	model.dir <- "racedu24"
+	age.only <- FALSE
+} else {
+	model.dir <- "ageonly16"
+	age.only <- TRUE
+	warning(paste("Model", model, "not available, defaulting to 'ageonly'."))
+}
+
+data.path <- file.path("data/", model.dir) # input dir: smoothed pop data
+estim.path <- file.path("results/estimates-csv/dynamic-const/", model.dir) # input dir: model estimates
+plot.path <- file.path("results/result-plots/dynamic-const/", model.dir) # output dir: plots
+img.ext <- ".png"
+
+
+message("Setting up...")
+
 library(data.table)
 library(ggplot2)
 
 source("local-regression.r") # load local-polynomial regression function
-
-# SELECT model
-age.only <- TRUE
-data.path <- "data/ageonly16/" # input dir: smoothed pop data
-estim.path <- "results/estimates-csv/dynamic-const/ageonly16/" # input dir: model estimates
-plot.path <- "results/result-plots/dynamic-const/ageonly16/" # output dir: plots
-img.ext <- ".png"
 
 # bandwidth matrix for smoothed prod plots
 prod.bw.cor <- 0.5
@@ -111,8 +131,10 @@ prod.dt[, SMOOTH := loc.poly.reg(AGE_M, AGE_F, VALUE, prod.bw, order = prod.smoo
 
 ##### PLOTTING #####
 
-# list of plots to convert to tikz
-plots <- list() # 5.5 x 2.5 standard size
+# lists of plots (for each size) to convert to tikz
+plots.full <- list() # full page square: 5.5 x 6.35
+plots.rect <- list() # large rectangle: 5.5 x 3.5
+plots.std <- list() # 5.5 x 2.5 standard size
 
 # plotting layers
 xy.line <- geom_segment(x = min.age, y = min.age, xend = max.age, yend = max.age, colour = "white", size = 1.2)
@@ -123,29 +145,35 @@ flow.color.grad <- scale_colour_gradient(low = "navy", high = "red", name = "Flo
 stock.color.grad <- scale_colour_gradient(low = "navy", high = "red", name = "Stock")
 alpha.color.grad <- scale_colour_gradient2(low = "navy", mid = "red", high = "white", midpoint = 0.5, name = "Probability")
 prod.color.grad <- scale_colour_gradient2(low = "navy", mid = "red", high = "white", midpoint = 0, name = "Output")
+theme.colorbar <- theme(legend.position = "bottom", legend.key.width = unit(2, "cm"), legend.key.height = unit(0.3, "cm"))
 
+
+message("Start plotting...")
 
 # lifecycle prod for homogamous couples with 2 year age gap (from smoothed global average f)
 if (age.only) {
 	p <- ggplot(
-			prod.dt[MSA %in% top.cities & AGE_M < max.age-1 & AGE_F == AGE_M - 2],
-			aes(x = AGE_F, y = SMOOTH)) +
+			prod.dt[MSA %in% top.cities & AGE_M < max.age-1 & AGE_F < max.age - 5 & AGE_F > min.age + 5 &
+			        ((AGE_M - AGE_F) %in% c(-2, 0, 2, 4)),
+			        .(AGE_F, SMOOTH, CITY, GAP = AGE_M - AGE_F)],
+			aes(x = AGE_F, y = SMOOTH, color = as.factor(GAP))) +
 		geom_line(size = 1) +
-		labs(x = "Wife age", y = "Output") +
+		labs(x = "Wife age", y = "Output", color = "Age gap") +
 		facet_wrap(~CITY, scales = "free_y")
 
-	plots[["prod_smooth_lifecycle"]] <- p
+	plots.rect[["prod_smooth_lifecycle"]] <- p
 	ggsave(paste0("prod-smooth-lifecycle", img.ext), path = plot.path)
 
 	p <- ggplot(
-			prod.dt[AGE_M < max.age-1 & AGE_F == AGE_M - 2,
+			prod.dt[AGE_M < max.age-1 & AGE_F < max.age - 5 & AGE_F > min.age + 5 &
+			        ((AGE_M - AGE_F) %in% c(-2, 0, 2, 4)),
 			        .(AVG = mean(SMOOTH)), # average across MSAs
 			        by = .(AGE_M, AGE_F)],
-			aes(x = AGE_F, y = AVG)) +
+			aes(x = AGE_F, y = AVG, color = as.factor(AGE_M - AGE_F))) +
 		geom_line(size = 1) +
-		labs(x = "Wife age", y = "Output")
+		labs(x = "Wife age", y = "Output", color = "Age gap")
 
-	plots[["prod_smooth_global_lifecycle"]] <- p
+	plots.std[["prod_smooth_global_lifecycle"]] <- p
 	ggsave(paste0("prod-smooth-global-lifecycle", img.ext), path = plot.path)
 } else {
 	p <- ggplot(
@@ -159,8 +187,8 @@ if (age.only) {
 		labs(x = "Wife age", y = "Output") +
 		facet_wrap(~CITY, scales = "free_y")
 
-	plots[["prod_smooth_lifecycle"]] <- p
-	ggsave(paste0("prod-smooth-lifecycle", img.ext), path = plot.path)
+	plots.rect[["prod_smooth_lifecycle_racedu"]] <- p
+	ggsave(paste0("prod-smooth-lifecycle_racedu", img.ext), path = plot.path)
 
 	p <- ggplot(
 			prod.dt[AGE_M < max.age-1 & AGE_F == AGE_M - 2 & COLLEGE_M == COLLEGE_F & MINORITY_M == MINORITY_F,
@@ -173,9 +201,12 @@ if (age.only) {
 		                     labels = c("NC,NM", "NC,M", "C,NM", "C,M")) +
 		labs(x = "Wife age", y = "Output")
 
-	plots[["prod_smooth_global_lifecycle"]] <- p
-	ggsave(paste0("prod-smooth-global-lifecycle", img.ext), path = plot.path)
+	plots.std[["prod_smooth_global_lifecycle_racedu"]] <- p
+	ggsave(paste0("prod-smooth-global-lifecycle-racedu", img.ext), path = plot.path)
 }
+
+
+message("Pairwise plots...")
 
 for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife types
 
@@ -184,24 +215,25 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 	### Population Stocks ###
 
 	p <- ggplot(
-			pop.dt[MSA %in% top.cities & AGE<max.age &
+			pop.dt[MSA %in% top.cities & AGE < max.age &
 			       COLLEGE == edu.types[[e]] & MINORITY == rac.types[[r]] ],
 			aes(x = AGE)) +
-		geom_line(aes(y = POP_M, color = "Male"), size = 1) +
-		geom_line(aes(y = POP_F, color = "Female"), size = 1) +
-		geom_line(aes(y = SNG_M, color = "Male"), size = 1, linetype = 2) +
-		geom_line(aes(y = SNG_F, color = "Female"), size = 1, linetype = 2) +
-		labs(x = "Age", y = "Counts", color = "Sex") +
+		geom_line(aes(y = POP_M / 1000, color = "Male"), size = 1) +
+		geom_line(aes(y = POP_F / 1000, color = "Female"), size = 1) +
+		geom_line(aes(y = SNG_M / 1000, color = "Male"), size = 1, linetype = 2) +
+		geom_line(aes(y = SNG_F / 1000, color = "Female"), size = 1, linetype = 2) +
+		labs(x = "Age", y = "Counts (thousands)", color = "Sex") +
+		theme(legend.position = "bottom") +
 		facet_wrap(~CITY, scales = "free_y")
 
-	plots[[paste0("pop_", r, e)]] <- p
+	plots.full[[paste0("pop_", r, e)]] <- p
 	ggsave(paste0("pop-", r, e, img.ext), path = plot.path)
 
 
 	### DF fit: data and model ###
 
 	p <- ggplot(
-			df.dt[MSA %in% top.cities & AGE<max.age &
+			df.dt[MSA %in% top.cities & AGE < max.age &
 			      COLLEGE == edu.types[[e]] & MINORITY == rac.types[[r]] ],
 			aes(x = AGE)) +
 		geom_line(aes(y = FLOW_M_DATA, color = "Male"), size = 1) +
@@ -209,24 +241,26 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 		geom_line(aes(y = FLOW_M_MODEL, color = "Male"), size = 1, linetype = 2) +
 		geom_line(aes(y = FLOW_F_MODEL, color = "Female"), size = 1, linetype = 2) +
 		labs(x = "Age", y = "Divorces", color = "Sex") +
+		theme(legend.position = "bottom") +
 		facet_wrap(~CITY, scales = "free_y")
 
-	plots[[paste0("DF_", r, e)]] <- p
+	plots.rect[[paste0("DF_", r, e)]] <- p
 	ggsave(paste0("df-", r, e, img.ext), path = plot.path)
 
 
 	### Value functions ###
 
 	p <- ggplot(
-			val.dt[MSA %in% top.cities & AGE<max.age &
+			val.dt[MSA %in% top.cities & AGE < max.age &
 			       COLLEGE == edu.types[[e]] & MINORITY == rac.types[[r]] ],
 			aes(x = AGE)) +
 		geom_line(aes(y = VALUE_M, color = "Male"), size = 1) +
 		geom_line(aes(y = VALUE_F, color = "Female"), size = 1) +
 		labs(x = "Age", y = "Value of search", color = "Sex") +
+		theme(legend.position = "bottom") +
 		facet_wrap(~CITY)
 
-	plots[[paste0("val_", r, e)]] <- p
+	plots.rect[[paste0("val_", r, e)]] <- p
 	ggsave(paste0("val-", r, e, img.ext), path = plot.path)
 
 
@@ -246,9 +280,10 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			flow.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("dMF_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("dMF_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("mf-data-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 		# model: top 4
@@ -261,9 +296,10 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			flow.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("MF_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("MF_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("mf-model-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 		# fit pct error, top 4: (model - data) / data, with data smoothed
@@ -279,9 +315,10 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			error.fill.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("fitMF_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("fitMF_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("mf-fit-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 
@@ -296,13 +333,21 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			alpha.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("alpha_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("alpha_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("alpha-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 
 		### Production ###
+
+		# re-usable dt, especially for partial plots
+		prod.smooth.dt <- prod.dt[AGE_M < max.age-5 & AGE_F < max.age-5 &
+		                          COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
+		                          COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]],
+		                          .(TVAL = truncator(mean(SMOOTH), -5, 4)), # average across MSAs
+		                          by = .(AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F)]
 
 		# global average f
 		p <- ggplot(
@@ -316,27 +361,35 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			expand_limits(x = min.age, y = min.age) + # prevent plot from cropping off
 			prod.color.grad +
 			xy.line +
-			age.labs
+			age.labs +
+			theme.colorbar
 
-		plots[[paste0("prod_global_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("prod_global_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("prod-global-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 		# smoothed global average f
-		p <- ggplot(
-				prod.dt[AGE_M < max.age-5 & AGE_F < max.age-5 &
-				        COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
-				        COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]],
-				        .(TVAL = truncator(mean(SMOOTH), -5, 4)), # average across MSAs
-				        by = .(AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F)],
-				aes(x = AGE_M, y = AGE_F, z = TVAL)) +
+		p <- ggplot(prod.smooth.dt, aes(x = AGE_M, y = AGE_F, z = TVAL)) +
 			stat_contour(aes(colour = ..level..), bins = 12, size = 0.5) +
 			expand_limits(x = min.age+3, y = min.age+3) + # prevent plot from cropping off
 			prod.color.grad +
 			xy.line +
-			age.labs
+			age.labs +
+			theme.colorbar
 
-		plots[[paste0("prod_smooth_global_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("prod_smooth_global_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("prod-smooth-global-", r_h, e_h, r, e, img.ext), path = plot.path)
+
+		# partial lines plot from smoothed global average f
+		p <- ggplot() +
+			geom_line(data = prod.smooth.dt[AGE_M == 38 & AGE_F > min.age + 5],
+			          aes(x = AGE_F, y = TVAL, color = "Female"), size = 1) +
+			geom_line(data = prod.smooth.dt[AGE_F == 36 & AGE_M > min.age + 5],
+			          aes(x = AGE_M, y = TVAL, color = "Male"), size = 1) +
+			labs(x = "Age", y = "Output", color = "Sex") +
+			theme(legend.position = "bottom")
+
+		plots.std[[paste0("prod_smooth_global_partials_", r_h, e_h, r, e)]] <- p
+		ggsave(paste0("prod-smooth-global-partials-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 		# local estimates
 		p <- ggplot(
@@ -349,9 +402,10 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			prod.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("prod_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("prod_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("prod-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 		# smoothed local estimates
@@ -365,9 +419,10 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			prod.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("prod_smooth_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("prod_smooth_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("prod-smooth-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 
@@ -382,9 +437,10 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			stock.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("marstock_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("marstock_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("mar-stock-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 
@@ -399,15 +455,22 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 			flow.color.grad +
 			xy.line +
 			age.labs +
+			theme.colorbar +
 			facet_wrap(~CITY)
 
-		plots[[paste0("marmig_", r_h, e_h, r, e)]] <- p
+		plots.full[[paste0("marmig_", r_h, e_h, r, e)]] <- p
 		ggsave(paste0("mar-mig-", r_h, e_h, r, e, img.ext), path = plot.path)
 
 	}
 }
 
+message("Done!")
+
 ### Save plot objects ###
 
 # save objects for further manipulation and conversion to tex
-saveRDS(plots, file = file.path(plot.path, "plot-standard.Rdata"))
+plots <- list(full = plots.full,
+              rect = plots.rect,
+              std = plots.std)
+saveRDS(plots, file = file.path(plot.path, "plot-objects.Rdata"))
+
