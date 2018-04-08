@@ -1,8 +1,33 @@
 ### USAGE OPTIONS ###
 
+# command line usage: julia main-estim.jl DATADIR [MODEL] 
+#	* DATADIR: location of smoothed CSV data dir (such as "ageonly16")
+#	* MODEL (optional): 'ageonly' or 'racedu' (defaults to 'ageonly')
+#		* will look for the directory 'ageonly16' or 'racedu24' within DATADIR
+# Example: julia main-estim.jl data/ ageonly
+
 # NOTE: some settings are in the @everywhere block below
 #	* set `no_edu` and `no_race`
 #	* set `min_age` and `max_age`
+
+if ARGS[2] == "ageonly"
+	age_only = true
+elseif ARGS[2] == "racedu"
+	age_only = false
+else
+	warn("Model $(ARGS[2]) not available! Defaulting to 'ageonly'.")
+	age_only = true
+end
+
+data_dir = joinpath(ARGS[1], age_only ? "ageonly16" : "racedu24")
+pop_file = joinpath(data_dir, "populations.jld")
+
+log_file = joinpath("results", age_only ? "log-est-ageonly.csv" : "log-est-racedu.csv")
+save_path = joinpath("results", age_only ? "est-ageonly16.jld" : "est-racedu24.jld")
+csv_dir = joinpath("results/estimates-csv/dynamic-const", age_only ? "ageonly16" : "racedu24")
+
+info("Data dir: $(data_dir)")
+info("Log file: $(log_file)")
 
 # select model
 static_age = false # whether to use model with static age or with dynamic aging process
@@ -19,12 +44,7 @@ logistic_delta = false
 reload_smooth = true # set true to reload the smoothed population csv files, otherwise use saved JLD
 grid_search = false # NOTE: need to manually set grids and modify `obj_landscaper` per model
 estimate_rates = true # set true to run GMM estimation, otherwise just use ζx_0, ζd_0 below
-compute_np_obj = true
-
-data_dir = "data/racedu24/"
-pop_file = "results/populations.jld"
-save_path = "results/est-dyn-const-racedu-bw24.jld"
-csv_dir = "results/estimates-csv/dynamic-const/racedu24/"
+compute_np_obj = false
 
 # select optimizer for arrival rate estimation
 use_nlopt = true
@@ -46,8 +66,8 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 
 @everywhere begin # load on all process in case running parallel
 
-	const no_edu = false # whether to exclude college as a static type
-	const no_race = false # whether to exclude race as a static type
+	const no_edu = age_only ? true : false # whether to exclude college as a static type
+	const no_race = age_only ? true : false # whether to exclude race as a static type
 
 	const r = 0.04 # discount rate
 	const ρ = 1.0 # aging rate
@@ -55,8 +75,8 @@ using JLD, Distributions, Interpolations, DataFrames, Query
 	const STDNORMAL = Distributions.Normal()
 
 	# NOTE: must match `max.age` from `smooth-pop.r` and mortality data
+	const min_age = age_only ? 18 : 25 # initial age (excluded: 18 or 25 with edu)
 	const max_age = 65 # terminal age (inclusive)
-	const min_age = 25 # initial age (excluded: 18 or 25 with edu)
 	const n_ages = max_age - min_age # excluding min_age (inflow group)
 
 	# NOTE: must match `top.msa` from `smooth-pop.r` and `smooth-flows.r`
@@ -195,8 +215,9 @@ Interpolated ξ:
 Loss: 1193.6704652231151
 """
 
-ζx_0 = [3.0]
-ζd_0 = [0.02]
+# initial guesses
+ζx_0 = [age_only ? 2.59 : 1.56]
+ζd_0 = [age_only ? 0.0196 : 0.0215]
 
 
 ### ESTIMATION ###
@@ -305,6 +326,11 @@ if estimate_rates # run optimizer for MD estimation
 	println("ζx: $ζx") 
 	println("ζd: $ζd")
 	println("Loss: $min_f")
+
+	# append estimates to csv file (use as log or for calculating bootstrap standard errors)
+	open(log_file, "a") do log
+		write(log, "$(now()),$(data_dir),$(ζx[1]),$(ζd[1]),$(min_f)\n")
+	end
 else # just use the initial guess
 	ζx = ζx_0
 	ζd = ζd_0

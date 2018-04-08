@@ -1,41 +1,55 @@
 # Non-parametric (local-cubic) regression to smooth population stocks
 
+# Command line usage: `Rscript smooth-data.r DB DEST [MODEL]`
+#	DB: path to acs_08-16.db
+#	DEST: output directory
+#	MODEL (optional): ageonly or racedu (default = ageonly)
+
 # Order of traits: husband then wife; age, edu, race
 # Notation: husband gets _SP suffix, wife is default
 # Min age with edu is 25 because of endogeneity of college
 # ACS data: 2008-2016, ages 18-79 (note: AGE_SP is not limited).
 #	Note: 2015 and 2016 are missing the RACESING variable
 
-library(stringr) # string interpolation
-library(DBI) # RSQLite database functions
-library(data.table)
-library(np) # non-parametric regression
-
-source("local-regression.r") # load local-polynomial regression function
-
 
 ### Usage Options ###
 
-out.dir <- "data/racedu24/"
+# command line args
+args = commandArgs(trailingOnly = TRUE)
 
-# use edu and race as types? (even if not, still keep redundant types for compat)
-age.only <- FALSE
+db.file <- args[1] # filepath to acs_08-16.db
+data.dir <- args[2] # path to dir where 'ageonly16' and 'racedu24' dirs will be
+model <- args[3] # use edu and race as types? (even if not, still keep redundant types for compat)
+
+if (model == "ageonly") {
+	age.only <- TRUE
+} else if (model == "racedu") {
+	age.only <- FALSE
+} else {
+	age.only <- TRUE
+	warning(paste("Model", model, "not available, defaulting to 'ageonly'."))
+}
+
+out.dir <- file.path(data.dir, ifelse(age.only, "ageonly16", "racedu24"))
+dir.create(path = out.dir, showWarnings = FALSE)
+message("Start processing '", ifelse(age.only, "ageonly", "racedu"), "' model.")
+message("Output directory: ", out.dir)
 
 # number of ACS samples that are pooled
-n.samples <- 9
+n.samples <- 9 # for acs_08-16 data
 
 # boundaries: initial/terminal age
-min.age <- 25 # exclusive (18 or 25 with edu)
+min.age <- ifelse(age.only, 18, 25) # exclusive
 max.age <- 65 # inclusive
 
 # choose what bandwidth to use for ages in marriages and for individuals
 ind.bw.cv <- TRUE # set to TRUE to use bw=cv.aic
 ind.bw <- 1.0
 
-mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic
+mar.bw.cv <- FALSE # set to TRUE to use bw=cv.aic, else use manual bw
 # bandwidth matrices to use for manual bivariate age smoothing
 #	* values tuned by manual validation
-pop.bw.var <- 24 # bandwidth matrix variance (16 for age-only, 24 with rac-edu)
+pop.bw.var <- ifelse(age.only, 16, 24) # bandwidth matrix variance (16 for age-only, 24 with rac-edu)
 pop.bw.cor <- 0.98 # bandwidth matrix correlation (diagonal orientation)
 flow.bw.cor <- 0.9
 mig.bw.cor <- 0.85
@@ -49,9 +63,18 @@ top.msa <- c(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 1446
 top_msa <- '(35620, 31080, 16980, 19100, 37980, 26420, 47900, 33100, 12060, 14460, 41860, 19820, 38060, 40140, 42660, 33460, 41740, 45300, 41180, 12580)'
 
 
+suppressPackageStartupMessages(library(stringr)) # string interpolation
+suppressPackageStartupMessages(library(DBI)) # RSQLite database functions
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(np)) # non-parametric regression
+
+source("local-regression.r") # load local-polynomial regression function
+
+
 # connect to sqlite database
 # table names: acs, mig2met
-db <- dbConnect(RSQLite::SQLite(), 'data/acs_08-16.db')
+message("DB connection: ", db.file)
+db <- dbConnect(RSQLite::SQLite(), db.file)
 
 
 ### Categorization ###
@@ -224,35 +247,35 @@ qry_outmar <- paste('select m."MSA" as MSA,
 
 
 # queries return dataframes, convert to data.table and merge into the complete grid
-print("Query: populations...")
+message("Query: populations...")
 pop.dt <- merge(merge(data.table(dbGetQuery(db, qry_tot)), data.table(dbGetQuery(db, qry_sng)),
-					  all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg)),
+					  all = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg)),
 				ind.grid,
-				all.y=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg))
+				all.y = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg))
 
 # right join to force to grid (drops husbands > 79)
-print("Query: marriage stocks...")
+message("Query: marriage stocks...")
 marriages <- merge(data.table(dbGetQuery(db, qry_marr)), mar.grid,
-				   all.y=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
+				   all.y = TRUE, by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
 
-print("Query: marriage flows...")
+message("Query: marriage flows...")
 mar.flow <- merge(data.table(dbGetQuery(db, qry_marr_flow)), mar.grid,
-				  all.y=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
-print("Query: divorce flows...")
+				  all.y = TRUE, by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
+message("Query: divorce flows...")
 div.flow <- merge(data.table(dbGetQuery(db, qry_div_flow)), ind.grid,
-				  all.y=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg))
+				  all.y = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg))
 
-print("Query: individual migration outflows...")
+message("Query: individual migration outflows...")
 ind.mig <- merge(merge(data.table(dbGetQuery(db, qry_inflow)), data.table(dbGetQuery(db, qry_outflow)),
-					   all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg)),
+					   all = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg)),
 				 ind.grid,
-				 all.y=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg))
+				 all.y = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg))
 
-print("Query: marriage migration outflows...")
+message("Query: marriage migration outflows...")
 mar.mig <- merge(merge(data.table(dbGetQuery(db, qry_inmar)), data.table(dbGetQuery(db, qry_outmar)),
-					   all=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg)),
+					   all = TRUE, by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg)),
 				 mar.grid,
-				 all.y=TRUE, by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
+				 all.y = TRUE, by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg))
 
 # fill NA with zeros before smoothing
 pop.dt[is.na(pop.dt)] <- 0
@@ -288,24 +311,24 @@ for (col in c(husb.mrg, wife.mrg)) set(mar.mig, j = col, value = factor(mar.mig[
 
 ### Individuals ###
 
-print("Starting non-parametric regression on individual masses.")
+message("Starting non-parametric regression on individual masses.")
 
 if (ind.bw.cv) {
 	# cross-validated bandwidth with sample splitting on categoricals
-	pop.dt[, `:=`(SNG = predict(npreg(bws=npregbw(formula = RAW_SNG ~ AGE,
-												  regtype="ll",
-												  bwmethod="cv.aic",
-												  data=.SD))),
-			      POP = predict(npreg(bws=npregbw(formula = RAW_POP ~ AGE,
-												  regtype="ll",
-												  bwmethod="cv.aic",
-												  data=.SD)))),
+	pop.dt[, `:=`(SNG = predict(npreg(bws = npregbw(formula = RAW_SNG ~ AGE,
+												  regtype = "ll",
+												  bwmethod = "cv.aic",
+												  data = .SD))),
+			      POP = predict(npreg(bws = npregbw(formula = RAW_POP ~ AGE,
+												  regtype = "ll",
+												  bwmethod = "cv.aic",
+												  data = .SD)))),
 			by = c("MSA", "SEX", ind.mrg)]
 
-	div.flow[, FLOW := predict(npreg(bws=npregbw(formula = RAW_DF ~ AGE,
-												 regtype="ll",
-												 bwmethod="cv.aic",
-												 data=.SD))),
+	div.flow[, FLOW := predict(npreg(bws = npregbw(formula = RAW_DF ~ AGE,
+												 regtype = "ll",
+												 bwmethod = "cv.aic",
+												 data = .SD))),
 			  by = c("MSA", "SEX", ind.mrg)]
 
 	# Note: untested
@@ -336,7 +359,7 @@ trm.pop <- pop.dt[AGE >= max.age,
 
 # drop and merge truncated masses
 pop.dt <- merge(pop.dt[AGE < max.age], trm.pop,
-				 all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg, "SNG", "POP"))
+				 all = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg, "SNG", "POP"))
 
 # lump together truncated masses to be merged back in
 trm.ind.mig <- ind.mig[AGE >= max.age,
@@ -345,16 +368,16 @@ trm.ind.mig <- ind.mig[AGE >= max.age,
 
 # drop and merge truncated masses
 ind.mig <- merge(ind.mig[AGE < max.age], trm.ind.mig,
-				 all=TRUE, by=c("MSA", "SEX", "AGE", ind.mrg, "NET_OUTFLOW"))
+				 all = TRUE, by = c("MSA", "SEX", "AGE", ind.mrg, "NET_OUTFLOW"))
 
 
 ### Marriages ###
 
-print("Starting non-parametric regression on couple masses.")
+message("Starting non-parametric regression on couple masses.")
 
 if (mar.bw.cv) {
 	# cross-validated bandwidth with sample splitting
-	print("CV bandwidth will take a while...")
+	message("CV bandwidth will take a while...")
 
 	marriages[, MASS := predict(npreg(bws=npregbw(formula = RAW_MASS ~ AGE_M + AGE_F,
 												  regtype="ll",
@@ -375,15 +398,15 @@ if (mar.bw.cv) {
 			 by = c("MSA", husb.mrg, wife.mrg)]
 } else {
 	# manual age-only smoothing with kernel oriented along joint aging axis
-	print("Smoothing marriage stocks...")
+	message("Smoothing marriage stocks...")
 	marriages[, MASS := loc.poly.reg(AGE_M, AGE_F, RAW_MASS, pop.bw, order = 3),
 			  by = c("MSA", husb.mrg, wife.mrg)]
 
-	print("Smoothing marriage flows...")
+	message("Smoothing marriage flows...")
 	mar.flow[, FLOW := loc.poly.reg(AGE_M, AGE_F, RAW_MF, flow.bw, order = 3),
 			 by = c("MSA", husb.mrg, wife.mrg)]
 
-	print("Smoothing marriage migration outflows...")
+	message("Smoothing marriage migration outflows...")
 	mar.mig[, NET_OUTFLOW := loc.poly.reg(AGE_M, AGE_F, NET_OUTFLOW_RAW, mig.bw, order = 3),
 			by = c("MSA", husb.mrg, wife.mrg)]
 }
@@ -403,6 +426,8 @@ if (mar.bw.cv) {
 
 
 ### Trim, Truncate, and Clean ###
+
+message("Tidying up and saving csv files...")
 
 # both >= max.age
 trm.both.mar <- marriages[AGE_M >= max.age & AGE_F >= max.age,
@@ -431,19 +456,19 @@ trm.wife.mig <- mar.mig[AGE_M < max.age & AGE_F >= max.age,
 					by = c("MSA", "AGE_M", husb.mrg, wife.mrg)]
 
 # drop and merge each segment
-marriages <- merge(marriages[AGE_M < max.age & AGE_F < max.age], trm.both.mar, all=TRUE,
-				   by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "MASS"))
-marriages <- merge(marriages, trm.husb.mar, all=TRUE,
-			  by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "MASS"))
-marriages <- merge(marriages, trm.wife.mar, all=TRUE,
-			  by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "MASS"))
+marriages <- merge(marriages[AGE_M < max.age & AGE_F < max.age], trm.both.mar, all = TRUE,
+				   by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "MASS"))
+marriages <- merge(marriages, trm.husb.mar, all = TRUE,
+			  by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "MASS"))
+marriages <- merge(marriages, trm.wife.mar, all = TRUE,
+			  by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "MASS"))
 
-mar.mig <- merge(mar.mig[AGE_M < max.age & AGE_F < max.age], trm.both.mig, all=TRUE,
-				 by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "NET_OUTFLOW"))
-mar.mig <- merge(mar.mig, trm.husb.mig, all=TRUE,
-				 by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "NET_OUTFLOW"))
-mar.mig <- merge(mar.mig, trm.wife.mig, all=TRUE,
-				 by=c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "NET_OUTFLOW"))
+mar.mig <- merge(mar.mig[AGE_M < max.age & AGE_F < max.age], trm.both.mig, all = TRUE,
+				 by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "NET_OUTFLOW"))
+mar.mig <- merge(mar.mig, trm.husb.mig, all = TRUE,
+				 by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "NET_OUTFLOW"))
+mar.mig <- merge(mar.mig, trm.wife.mig, all = TRUE,
+				 by = c("MSA", "AGE_M", husb.mrg, "AGE_F", wife.mrg, "NET_OUTFLOW"))
 
 # trim max.age (NOTE: max.age will be dropped in the estimation because of truncation)
 mar.flow <- mar.flow[AGE_M <= max.age & AGE_F <= max.age]
@@ -457,9 +482,11 @@ div.flow[FLOW < 0, FLOW := 0.0]
 
 ### Save flows and stocks ###
 
-fwrite(marriages, file=file.path(out.dir, "marriages.csv"))
-fwrite(pop.dt, file=file.path(out.dir, "pop.csv"))
-fwrite(mar.flow, file=file.path(out.dir, "pair-MF.csv"))
-fwrite(div.flow, file=file.path(out.dir, "ind-DF.csv"))
-fwrite(ind.mig, file=file.path(out.dir, "indiv-migration.csv"))
-fwrite(mar.mig, file=file.path(out.dir, "mar-migration.csv"))
+fwrite(marriages, file = file.path(out.dir, "marriages.csv"))
+fwrite(pop.dt, file = file.path(out.dir, "pop.csv"))
+fwrite(mar.flow, file = file.path(out.dir, "pair-MF.csv"))
+fwrite(div.flow, file = file.path(out.dir, "ind-DF.csv"))
+fwrite(ind.mig, file = file.path(out.dir, "indiv-migration.csv"))
+fwrite(mar.mig, file = file.path(out.dir, "mar-migration.csv"))
+
+message("Done!")

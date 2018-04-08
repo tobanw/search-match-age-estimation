@@ -1,5 +1,5 @@
-# Command line usage: `Rscript tikz-conversion.R model`
-#	model: ageonly or racedu
+# Command line usage: `Rscript tikz-conversion.R [MODEL]`
+#	MODEL (optional): ageonly or racedu (default = ageonly)
 
 # command line args
 model = commandArgs(trailingOnly=TRUE)
