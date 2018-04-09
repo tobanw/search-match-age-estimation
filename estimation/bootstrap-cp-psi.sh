@@ -1,1 +1,1 @@
-parallel cp data/ageonly16/*-psi.csv {1}/{2}/ ::: data/bootstrap-samples/resamp_* ::: ageonly16 racedu24
+parallel cp data/{2}/*-psi.csv {1}/{2}/ ::: data/bootstrap-samples/resamp_* ::: ageonly16 racedu24
