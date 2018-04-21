@@ -30,13 +30,16 @@ Queries apply categorizations (race, edu) on-the-fly, so no need to pre-clean th
 
 ## Bootstrap Standard Errors
 
-Run scripts in order to set up resampled datasets, run smoothing, and then estimation:
+Run scripts in order to set up resampled datasets, run smoothing, and then estimation.
+Uses GNU Parallel for efficient batch processing.
 
 1. `Rscript bootstrap-resampler.r`: creates directories `data/bootstrap-samples/resamp_00` with resampled csv data
 2. `bash bootstrap-create-db.sh`: creates sqlite db from csv files
 3. `bash bootstrap-smooth.sh`: runs `smooth-data.r` for both ageonly and racedu specifications
+	* Took 40 hours for 100 resamples on 8 cores, low memory usage (<2GB)
 4. `bash bootstrap-cp-psi.sh`: copies the death rate data into the smoothed populations directories for each resample
 5. `bash bootstrap-estim.sh`: runs `main-estim.jl` for both ageonly and racedu specifications
+	* Took 100 minutes for 100 resamples on 8 cores, low memory usage (<4GB)
 
 ## Largest metro areas by adult population (millions)
 
