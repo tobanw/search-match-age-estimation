@@ -50,6 +50,7 @@ if (age.only) {
 }
 
 max.age <- 65
+max.age.estim <- 50 # max age for plotting estimates (some strange results at later ages)
 
 
 #' Clipping function for sensible production plots
@@ -153,7 +154,7 @@ message("Start plotting...")
 # lifecycle prod for homogamous couples with 2 year age gap (from smoothed global average f)
 if (age.only) {
 	p <- ggplot(
-			prod.dt[MSA %in% top.cities & AGE_M < max.age-1 & AGE_F < max.age - 5 & AGE_F > min.age + 5 &
+			prod.dt[MSA %in% top.cities & AGE_F <= max.age.estim & AGE_F > min.age + 5 &
 			        ((AGE_M - AGE_F) %in% c(-2, 0, 2, 4)),
 			        .(AGE_F, SMOOTH, CITY, GAP = AGE_M - AGE_F)],
 			aes(x = AGE_F, y = SMOOTH, color = as.factor(GAP))) +
@@ -165,7 +166,7 @@ if (age.only) {
 	ggsave(paste0("prod-smooth-lifecycle", img.ext), path = plot.path)
 
 	p <- ggplot(
-			prod.dt[AGE_M < max.age-1 & AGE_F < max.age - 5 & AGE_F > min.age + 5 &
+			prod.dt[AGE_F <= max.age.estim & AGE_F > min.age + 5 &
 			        ((AGE_M - AGE_F) %in% c(-2, 0, 2, 4)),
 			        .(AVG = mean(SMOOTH)), # average across MSAs
 			        by = .(AGE_M, AGE_F)],
@@ -177,7 +178,7 @@ if (age.only) {
 	ggsave(paste0("prod-smooth-global-lifecycle", img.ext), path = plot.path)
 } else {
 	p <- ggplot(
-			prod.dt[MSA %in% top.cities & AGE_M < max.age-1 & AGE_F == AGE_M - 2 &
+			prod.dt[MSA %in% top.cities & AGE_M <= max.age.estim & AGE_F == AGE_M - 2 &
 			        COLLEGE_M == COLLEGE_F & MINORITY_M == MINORITY_F],
 			aes(x = AGE_F, y = SMOOTH, color = as.factor(paste0(COLLEGE_M, MINORITY_M)))) +
 		geom_line(size = 1) +
@@ -191,7 +192,7 @@ if (age.only) {
 	ggsave(paste0("prod-smooth-lifecycle_racedu", img.ext), path = plot.path)
 
 	p <- ggplot(
-			prod.dt[AGE_M < max.age-1 & AGE_F == AGE_M - 2 & COLLEGE_M == COLLEGE_F & MINORITY_M == MINORITY_F,
+			prod.dt[AGE_M <= max.age.estim & AGE_F == AGE_M - 2 & COLLEGE_M == COLLEGE_F & MINORITY_M == MINORITY_F,
 			        .(AVG = mean(SMOOTH)), # average across MSAs
 			        by = .(AGE_M, COLLEGE_M, MINORITY_M, AGE_F, COLLEGE_F, MINORITY_F)],
 			aes(x = AGE_F, y = AVG, color = as.factor(paste0(COLLEGE_M, MINORITY_M)))) +
@@ -251,7 +252,7 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 	### Value functions ###
 
 	p <- ggplot(
-			val.dt[MSA %in% top.cities & AGE < max.age &
+			val.dt[MSA %in% top.cities & AGE <= max.age.estim &
 			       COLLEGE == edu.types[[e]] & MINORITY == rac.types[[r]] ],
 			aes(x = AGE)) +
 		geom_line(aes(y = VALUE_M, color = "Male"), size = 1) +
@@ -325,7 +326,7 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 		### Alpha ###
 
 		p <- ggplot(
-				alpha.dt[AGE_M < max.age-5 & AGE_F < max.age-5 & MSA %in% top.cities &
+				alpha.dt[AGE_M <= max.age.estim & AGE_F <= max.age.estim & MSA %in% top.cities &
 				         COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
 				         COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]] ],
 				aes(x = AGE_M, y = AGE_F, z = VALUE)) +
@@ -343,7 +344,7 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 		### Production ###
 
 		# re-usable dt, especially for partial plots
-		prod.smooth.dt <- prod.dt[AGE_M < max.age-5 & AGE_F < max.age-5 &
+		prod.smooth.dt <- prod.dt[AGE_M <= max.age.estim & AGE_F <= max.age.estim &
 		                          COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
 		                          COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]],
 		                          .(TVAL = truncator(mean(SMOOTH), -5, 4)), # average across MSAs
@@ -351,7 +352,7 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 
 		# global average f
 		p <- ggplot(
-				prod.dt[AGE_M < max.age-5 & AGE_F < max.age-5 &
+				prod.dt[AGE_M <= max.age.estim & AGE_F <= max.age.estim &
 				        COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
 				        COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]],
 				        .(TVAL = truncator(mean(VALUE), -4, 4)), # average across MSAs
@@ -393,7 +394,7 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 
 		# local estimates
 		p <- ggplot(
-				prod.dt[AGE_M < max.age-5 & AGE_F < max.age-5 & MSA %in% top.cities &
+				prod.dt[AGE_M <= max.age.estim & AGE_F <= max.age.estim & MSA %in% top.cities &
 				        COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
 				        COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]],
 				        .(CITY, AGE_M, AGE_F, TVAL = truncator(VALUE, -4, 2.4))],
@@ -410,7 +411,7 @@ for (r in names(rac.types)) for (e in names(edu.types)) { # r,e: indiv/wife type
 
 		# smoothed local estimates
 		p <- ggplot(
-				prod.dt[AGE_M < max.age-5 & AGE_F < max.age-5 & MSA %in% top.cities &
+				prod.dt[AGE_M <= max.age.estim & AGE_F <= max.age.estim & MSA %in% top.cities &
 				        COLLEGE_M == edu.types[[e_h]] & MINORITY_M == rac.types[[r_h]] &
 				        COLLEGE_F == edu.types[[e]] & MINORITY_F == rac.types[[r]],
 				        .(CITY, AGE_M, AGE_F, TVAL = truncator(SMOOTH, -4, 2.4))],
